@@ -17,12 +17,14 @@
 //! Ref labels are not stored: they change far more often than history and
 //! come from the same cheap `for-each-ref` call that detects changes.
 
+mod filter;
 mod graph;
 mod record;
 mod refs;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
@@ -32,6 +34,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use ts_rs::TS;
 
+pub use filter::{AuthorCount, LogFilter};
 pub use graph::{GraphRow, Lane, Layout};
 pub use record::{hex_decode, hex_encode, Record, RecordParser, FORMAT};
 pub use refs::{read_tips, RefTips};
@@ -88,8 +91,19 @@ pub struct LogPage {
     pub total: u32,
     pub version: u64,
     pub rows: Vec<CommitSummary>,
-    /// Graph drawing data, one entry per row.
+    /// Graph drawing data, one entry per row; empty when the rows have no
+    /// graph (a filter left holes in the history).
     pub graph: Vec<GraphRow>,
+}
+
+/// The rows of a filtered Log, computed once per filter and index version.
+struct View {
+    filter: LogFilter,
+    version: u64,
+    /// Table keys of the matching rows, ascending.
+    positions: Vec<i64>,
+    /// Layout states for the view's own graph, when it has one.
+    checkpoints: Option<Vec<Checkpoint>>,
 }
 
 /// How [`LogIndex::update`] brought the index up to date.
@@ -242,6 +256,8 @@ pub struct LogIndex {
     writer: Mutex<Writer>,
     reader: Mutex<Connection>,
     state: RwLock<State>,
+    /// Most recent filtered view.
+    view: Mutex<Option<Arc<View>>>,
 }
 
 impl LogIndex {
@@ -278,6 +294,7 @@ impl LogIndex {
                 version: 1,
                 ..State::default()
             }),
+            view: Mutex::new(None),
         })
     }
 
@@ -299,50 +316,216 @@ impl LogIndex {
     /// Rows `start..start + count` (clamped to what exists), with their graph.
     pub fn page(&self, start: u32, count: u32) -> Result<LogPage> {
         let st = self.read_state();
-        let total = st.order.len();
+        self.read_page(&st, &st.order, Some(&st.checkpoints), start, count)
+    }
+
+    /// Like [`page`](Self::page), for the rows matching `filter`.
+    pub fn page_filtered(
+        &self,
+        repo: &Repo,
+        filter: &LogFilter,
+        cancel: &CancelToken,
+        start: u32,
+        count: u32,
+    ) -> Result<LogPage> {
+        if filter.is_empty() {
+            return self.page(start, count);
+        }
+        let view = self.view(repo, filter, cancel)?;
+        let st = self.read_state();
+        let mut page = self.read_page(
+            &st,
+            &view.positions,
+            view.checkpoints.as_deref(),
+            start,
+            count,
+        )?;
+        // Report the version the view was computed for, so a newer index
+        // version makes the UI ask again (and the view get recomputed).
+        page.version = view.version;
+        Ok(page)
+    }
+
+    /// Row number of a commit (full hex id) in the full Log, if indexed.
+    pub fn row_of(&self, oid: &str) -> Result<Option<u32>> {
+        let st = self.read_state();
+        let pos = self.pos_of(oid)?;
+        Ok(pos.and_then(|p| st.order.binary_search(&p).ok().map(|i| i as u32)))
+    }
+
+    /// Row number of a commit in the Log filtered by `filter`.
+    pub fn row_of_filtered(
+        &self,
+        repo: &Repo,
+        filter: &LogFilter,
+        cancel: &CancelToken,
+        oid: &str,
+    ) -> Result<Option<u32>> {
+        if filter.is_empty() {
+            return self.row_of(oid);
+        }
+        let view = self.view(repo, filter, cancel)?;
+        let pos = self.pos_of(oid)?;
+        Ok(pos.and_then(|p| view.positions.binary_search(&p).ok().map(|i| i as u32)))
+    }
+
+    /// Authors whose `Name <email>` contains `query`, most commits first.
+    pub fn authors(&self, query: &str, limit: u32) -> Result<Vec<AuthorCount>> {
+        let db = lock(&self.reader);
+        let mut stmt = db.prepare_cached(
+            "SELECT a.name, a.email, count(*) AS n \
+             FROM commits c JOIN authors a ON a.id = c.author \
+             WHERE (a.name || ' <' || a.email || '>') LIKE ?1 ESCAPE '\\' \
+             GROUP BY c.author ORDER BY n DESC LIMIT ?2",
+        )?;
+        let pattern = filter::like_pattern(query.trim());
+        let rows = stmt.query_map(params![pattern, limit], |r| {
+            Ok(AuthorCount {
+                name: r.get(0)?,
+                email: r.get(1)?,
+                commits: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn pos_of(&self, oid: &str) -> Result<Option<i64>> {
+        let Some(bytes) = hex_decode(oid) else {
+            return Ok(None);
+        };
+        Ok(lock(&self.reader)
+            .query_row("SELECT pos FROM commits WHERE oid = ?1", [bytes], |r| {
+                r.get(0)
+            })
+            .optional()?)
+    }
+
+    /// The filtered view for `filter`, reusing the last one if it is current.
+    fn view(&self, repo: &Repo, filter: &LogFilter, cancel: &CancelToken) -> Result<Arc<View>> {
+        let (version, tips) = {
+            let st = self.read_state();
+            (st.version, st.tips.tips.clone())
+        };
+        if let Some(v) = lock(&self.view).as_ref() {
+            if v.version == version && v.filter == *filter {
+                return Ok(v.clone());
+            }
+        }
+        let allowed = filter.git_set(repo, &tips, cancel)?;
+        let graph = filter.keeps_graph();
+        let (cond, params) = filter.sql();
+
+        let st = self.read_state();
+        let mut positions = Vec::new();
+        let mut checkpoints = Vec::new();
+        let mut tracker = Tracker::default();
+        {
+            let db = lock(&self.reader);
+            let mut stmt = db.prepare(&format!(
+                "SELECT c.pos, c.oid, c.parents FROM commits c JOIN authors a ON a.id = c.author \
+                 WHERE {cond} ORDER BY c.pos"
+            ))?;
+            let mut it = stmt.query(rusqlite::params_from_iter(params))?;
+            let mut n = 0u32;
+            while let Some(r) = it.next()? {
+                n = n.wrapping_add(1);
+                if n.is_multiple_of(16_384) && cancel.is_cancelled() {
+                    return Err(GitError::Cancelled.into());
+                }
+                let oid = blob(r.get_ref(1)?);
+                if allowed.as_ref().is_some_and(|set| !set.contains(oid)) {
+                    continue;
+                }
+                let pos: i64 = r.get(0)?;
+                if graph {
+                    tracker.feed(pos, oid, blob(r.get_ref(2)?), &mut checkpoints);
+                }
+                positions.push(pos);
+            }
+        }
+        let view = Arc::new(View {
+            filter: filter.clone(),
+            version: st.version,
+            positions,
+            checkpoints: graph.then_some(checkpoints),
+        });
+        *lock(&self.view) = Some(view.clone());
+        Ok(view)
+    }
+
+    /// Rows `start..start + count` of the row list `positions` (ascending
+    /// table keys). With `checkpoints` the graph is laid out from the
+    /// nearest one; rows between that are not in the list are skipped.
+    fn read_page(
+        &self,
+        st: &State,
+        positions: &[i64],
+        checkpoints: Option<&[Checkpoint]>,
+        start: u32,
+        count: u32,
+    ) -> Result<LogPage> {
+        let total = positions.len();
         let s = (start as usize).min(total);
         let e = s.saturating_add(count as usize).min(total);
         let mut rows = Vec::with_capacity(e - s);
-        let mut graph = Vec::with_capacity(e - s);
-        if s < e {
-            let (first, last) = (st.order[s], st.order[e - 1]);
-            // Resume the layout from the nearest saved state above the page.
-            let cp = st.checkpoints.partition_point(|c| c.pos <= first);
-            let (mut layout, from) = match cp {
-                0 => (Layout::new(), st.order[0]),
-                i => {
-                    let c = &st.checkpoints[i - 1];
-                    (Layout::from_lanes(c.lanes.clone()), c.pos)
+        let mut graph = Vec::new();
+        let db = lock(&self.reader);
+        let to_summary = |r: &rusqlite::Row, oid: &[u8], parents: &[u8]| -> rusqlite::Result<_> {
+            let hex = hex_encode(oid);
+            Ok(CommitSummary {
+                refs: st.tips.labels.get(&hex).cloned().unwrap_or_default(),
+                oid: hex,
+                parents: parents.chunks(oid.len().max(1)).map(hex_encode).collect(),
+                author_name: r.get(3)?,
+                author_email: r.get(4)?,
+                author_time: r.get(5)?,
+                subject: r.get(6)?,
+            })
+        };
+        const COLUMNS: &str = "SELECT c.pos, c.oid, c.parents, a.name, a.email, c.time, c.subject \
+                               FROM commits c JOIN authors a ON a.id = c.author";
+
+        match checkpoints {
+            Some(cps) if s < e => {
+                let (first, last) = (positions[s], positions[e - 1]);
+                // Resume the layout from the nearest saved state above the page.
+                let (mut layout, from) = match cps.partition_point(|c| c.pos <= first) {
+                    0 => (Layout::new(), positions[0]),
+                    i => (Layout::from_lanes(cps[i - 1].lanes.clone()), cps[i - 1].pos),
+                };
+                let mut stmt = db.prepare_cached(&format!(
+                    "{COLUMNS} WHERE c.pos BETWEEN ?1 AND ?2 ORDER BY c.pos"
+                ))?;
+                let mut it = stmt.query([from, last])?;
+                let full = positions.len() == st.order.len();
+                while let Some(r) = it.next()? {
+                    let pos: i64 = r.get(0)?;
+                    if !full && positions.binary_search(&pos).is_err() {
+                        continue;
+                    }
+                    let oid = blob(r.get_ref(1)?);
+                    let parents = blob(r.get_ref(2)?);
+                    if pos < first {
+                        layout.step(oid, parents, None);
+                        continue;
+                    }
+                    let mut g = GraphRow::default();
+                    layout.step(oid, parents, Some(&mut g));
+                    graph.push(g);
+                    rows.push(to_summary(r, oid, parents)?);
                 }
-            };
-            let db = lock(&self.reader);
-            let mut stmt = db.prepare_cached(
-                "SELECT c.pos, c.oid, c.parents, a.name, a.email, c.time, c.subject \
-                 FROM commits c JOIN authors a ON a.id = c.author \
-                 WHERE c.pos BETWEEN ?1 AND ?2 ORDER BY c.pos",
-            )?;
-            let mut it = stmt.query([from, last])?;
-            while let Some(r) = it.next()? {
-                let pos: i64 = r.get(0)?;
-                let oid = blob(r.get_ref(1)?);
-                let parents = blob(r.get_ref(2)?);
-                if pos < first {
-                    layout.step(oid, parents, None);
-                    continue;
+            }
+            _ => {
+                // No graph: the rows may be far apart, read them one by one.
+                let mut stmt = db.prepare_cached(&format!("{COLUMNS} WHERE c.pos = ?1"))?;
+                for &pos in &positions[s..e] {
+                    let mut it = stmt.query([pos])?;
+                    if let Some(r) = it.next()? {
+                        let oid = blob(r.get_ref(1)?);
+                        let parents = blob(r.get_ref(2)?);
+                        rows.push(to_summary(r, oid, parents)?);
+                    }
                 }
-                let mut g = GraphRow::default();
-                layout.step(oid, parents, Some(&mut g));
-                graph.push(g);
-                let hex = hex_encode(oid);
-                rows.push(CommitSummary {
-                    refs: st.tips.labels.get(&hex).cloned().unwrap_or_default(),
-                    oid: hex,
-                    parents: parents.chunks(oid.len().max(1)).map(hex_encode).collect(),
-                    author_name: r.get(3)?,
-                    author_email: r.get(4)?,
-                    author_time: r.get(5)?,
-                    subject: r.get(6)?,
-                });
             }
         }
         Ok(LogPage {
@@ -352,20 +535,6 @@ impl LogIndex {
             rows,
             graph,
         })
-    }
-
-    /// Row number of a commit (full hex id), if it is indexed.
-    pub fn row_of(&self, oid: &str) -> Result<Option<u32>> {
-        let Some(bytes) = hex_decode(oid) else {
-            return Ok(None);
-        };
-        let st = self.read_state();
-        let pos: Option<i64> = lock(&self.reader)
-            .query_row("SELECT pos FROM commits WHERE oid = ?1", [bytes], |r| {
-                r.get(0)
-            })
-            .optional()?;
-        Ok(pos.and_then(|p| st.order.binary_search(&p).ok().map(|i| i as u32)))
     }
 
     /// Bring the index in line with the repository's current refs.

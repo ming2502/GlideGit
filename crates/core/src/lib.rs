@@ -7,6 +7,6 @@ mod manager;
 mod session;
 
 pub use error::{CoreError, Result};
-pub use glide_log_index::{LogPage, LogStatus};
+pub use glide_log_index::{AuthorCount, LogFilter, LogPage, LogStatus};
 pub use manager::RepositoryManager;
 pub use session::{is_relevant, RepoSession, SharedSnapshot, DEBOUNCE};

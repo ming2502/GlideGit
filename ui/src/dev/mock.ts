@@ -7,6 +7,7 @@ import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileChange } from "../bindings/FileChange";
 import type { FileDiff } from "../bindings/FileDiff";
 import type { GraphRow } from "../bindings/GraphRow";
+import type { LogFilter } from "../bindings/LogFilter";
 import type { LogStatus } from "../bindings/LogStatus";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 
@@ -270,6 +271,43 @@ async function fakeRemote(taskId: number, phases: string[]): Promise<null> {
   return null;
 }
 
+/** Rows matching a filter (cached per filter). Branch filters keep everything. */
+const matchCache = new Map<string, number[]>();
+function mockMatches(f: LogFilter): number[] {
+  const key = JSON.stringify(f);
+  const hit = matchCache.get(key);
+  if (hit) return hit;
+  const text = f.text.trim().toLowerCase();
+  const out: number[] = [];
+  for (let i = 0; i < MOCK_HISTORY; i++) {
+    const c = mockCommit(i);
+    if (text && !c.subject.toLowerCase().includes(text) && !(text.length >= 4 && c.oid.startsWith(text))) continue;
+    if (f.authors.length && !f.authors.some((x) => `${c.authorName} <${c.authorEmail}>`.toLowerCase().includes(x.toLowerCase()) || c.authorName.toLowerCase().startsWith(x.split("@")[0])))
+      continue;
+    if (f.since != null && c.authorTime < f.since) continue;
+    if (f.until != null && c.authorTime > f.until) continue;
+    // Paths: pretend every third commit touches them.
+    if (f.paths.length && i % 3 !== 0) continue;
+    out.push(i);
+  }
+  matchCache.set(key, out);
+  return out;
+}
+async function mockFiltered(root: string, f: LogFilter, start: number, count: number) {
+  await sleep(120); // git would take a moment
+  const rows = mockMatches(f);
+  const s = Math.min(start, rows.length);
+  const e = Math.min(s + count, rows.length);
+  const graphOk = !f.text.trim() && !f.authors.length && f.since == null && f.until == null && !f.paths.length;
+  return {
+    start: s,
+    total: rows.length,
+    version: logStatus(root).version,
+    rows: rows.slice(s, e).map(mockCommit),
+    graph: graphOk ? rows.slice(s, e).map(mockGraph) : [],
+  };
+}
+
 export function installMock(): void {
   mockWindows("main");
   mockIPC((cmd, args) => {
@@ -332,7 +370,15 @@ export function installMock(): void {
       case "log_status":
         startIndexing(a.root as string);
         return logStatus(a.root as string);
+      case "log_authors": {
+        const q = String(a.query ?? "").toLowerCase();
+        return authors
+          .map((name, k) => ({ name, email: `${name.split(" ")[0].toLowerCase()}@example.com`, commits: 24_000 - k * 3100 }))
+          .filter((x) => `${x.name} <${x.email}>`.toLowerCase().includes(q));
+      }
       case "log_page": {
+        const filter = a.filter as LogFilter | null;
+        if (filter) return mockFiltered(a.root as string, filter, a.start as number, a.count as number);
         const st = logStatus(a.root as string);
         const start = Math.min(a.start as number, st.total);
         const end = Math.min(start + (a.count as number), st.total);
@@ -341,6 +387,11 @@ export function installMock(): void {
         return { start, total: st.total, version: st.version, rows, graph };
       }
       case "log_row_of": {
+        if (a.filter) {
+          const rows = mockMatches(a.filter as LogFilter);
+          const i = rows.findIndex((r) => mockOid(r) === a.oid);
+          return i < 0 ? null : i;
+        }
         const i = parseInt(String(a.oid).slice(8), 16);
         return Number.isFinite(i) && mockOid(i) === a.oid ? i : null;
       }

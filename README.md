@@ -41,6 +41,7 @@ cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log
 | 拉取（Update Project） | ⌘T | Ctrl+T |
 | 分支弹窗 | ⌘⇧\` / ⌘B | Ctrl+Shift+\` / Ctrl+B |
 | Commit / Log 视图 | ⌘0 / ⌘9 | Ctrl+0 / Ctrl+9 |
+| Log 中搜索 | ⌘F | Ctrl+F |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |

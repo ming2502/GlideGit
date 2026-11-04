@@ -4,6 +4,7 @@ import type { GraphRow } from "./GraphRow";
 
 export type LogPage = { start: number, total: number, version: number, rows: Array<CommitSummary>, 
 /**
- * Graph drawing data, one entry per row.
+ * Graph drawing data, one entry per row; empty when the rows have no
+ * graph (a filter left holes in the history).
  */
 graph: Array<GraphRow>, };

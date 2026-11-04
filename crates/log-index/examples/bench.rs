@@ -55,8 +55,72 @@ fn main() {
             t.elapsed()
         );
     }
+    // Filters: each one is computed fresh (the view cache holds one filter).
+    use glide_log_index::LogFilter;
+    let filters = [
+        (
+            "text",
+            LogFilter {
+                text: "module 42".into(),
+                ..LogFilter::default()
+            },
+        ),
+        (
+            "hash",
+            LogFilter {
+                text: page_oid(&index),
+                ..LogFilter::default()
+            },
+        ),
+        (
+            "author",
+            LogFilter {
+                authors: vec!["Bob".into()],
+                ..LogFilter::default()
+            },
+        ),
+        (
+            "branch",
+            LogFilter {
+                branches: vec!["refs/heads/main".into()],
+                ..LogFilter::default()
+            },
+        ),
+        (
+            "path",
+            LogFilter {
+                paths: vec!["README.md".into()],
+                ..LogFilter::default()
+            },
+        ),
+    ];
+    for (name, f) in filters {
+        let t = Instant::now();
+        match index.page_filtered(&repo, &f, &CancelToken::new(), 0, 100) {
+            Ok(p) => println!(
+                "filter {name}: {} matches, first page in {:?}{}",
+                p.total,
+                t.elapsed(),
+                if p.graph.is_empty() {
+                    ""
+                } else {
+                    " (with graph)"
+                }
+            ),
+            Err(e) => println!("filter {name}: {e}"),
+        }
+    }
+
     let size = std::fs::metadata(index.path())
         .map(|m| m.len())
         .unwrap_or(0);
     println!("index file: {:.1} MiB", size as f64 / 1048576.0);
+}
+
+fn page_oid(index: &LogIndex) -> String {
+    let p = index.page(1000, 1).unwrap();
+    p.rows
+        .first()
+        .map(|c| c.oid[..8].to_string())
+        .unwrap_or_default()
 }

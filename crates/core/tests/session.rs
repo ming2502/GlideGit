@@ -204,14 +204,17 @@ async fn log_index_follows_commits() {
     let oid = session.write(|r| empty_commit(r, "second")).await.unwrap();
     wait_log(&session, |s| s.total == 2).await;
 
-    let page = session.log_page(0, 50).await.unwrap();
+    let page = session.log_page(0, 50, Default::default()).await.unwrap();
     assert_eq!(page.rows[0].subject, "second");
     assert_eq!(page.rows[0].refs, vec!["HEAD -> main"]);
-    assert_eq!(session.log_row_of(oid).await.unwrap(), Some(0));
+    assert_eq!(
+        session.log_row_of(oid, Default::default()).await.unwrap(),
+        Some(0)
+    );
 
     // A session without a cache directory has no index.
     let plain = RepoSession::open(cli(), dir.path()).await.unwrap();
     assert!(plain.log_status().is_none());
-    let err = plain.log_page(0, 1).await.unwrap_err();
+    let err = plain.log_page(0, 1, Default::default()).await.unwrap_err();
     assert_eq!(err.kind(), "logIndex");
 }

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use glide_core::{CoreError, LogPage, LogStatus, RepoSession};
+use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -201,10 +201,14 @@ pub async fn log_page(
     root: String,
     start: u32,
     count: u32,
+    filter: Option<LogFilter>,
 ) -> CmdResult<LogPage> {
     let s = session(&state, &root).await?;
     // Pages are small; a runaway request must not stall the UI.
-    Ok(s.log_page(start, count.min(2000)).await?)
+    Ok(
+        s.log_page(start, count.min(2000), filter.unwrap_or_default())
+            .await?,
+    )
 }
 
 #[tauri::command]
@@ -212,9 +216,20 @@ pub async fn log_row_of(
     state: State<'_, AppState>,
     root: String,
     oid: String,
+    filter: Option<LogFilter>,
 ) -> CmdResult<Option<u32>> {
     let s = session(&state, &root).await?;
-    Ok(s.log_row_of(oid).await?)
+    Ok(s.log_row_of(oid, filter.unwrap_or_default()).await?)
+}
+
+#[tauri::command]
+pub async fn log_authors(
+    state: State<'_, AppState>,
+    root: String,
+    query: String,
+) -> CmdResult<Vec<AuthorCount>> {
+    let s = session(&state, &root).await?;
+    Ok(s.log_authors(query, 50).await?)
 }
 
 #[tauri::command]

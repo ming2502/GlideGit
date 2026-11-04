@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AskRequest } from "./bindings/AskRequest";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileDiff } from "./bindings/FileDiff";
+import type { AuthorCount } from "./bindings/AuthorCount";
+import type { LogFilter } from "./bindings/LogFilter";
 import type { LogPage } from "./bindings/LogPage";
 import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
@@ -48,9 +50,11 @@ export const api = {
   diffFile: (root: string, path: string, mode: DiffMode, untracked: boolean) =>
     invoke<FileDiff>("diff_file", { root, path, mode, untracked }),
   logStatus: (root: string) => invoke<LogStatus>("log_status", { root }),
-  logPage: (root: string, start: number, count: number) =>
-    invoke<LogPage>("log_page", { root, start, count }),
-  logRowOf: (root: string, oid: string) => invoke<number | null>("log_row_of", { root, oid }),
+  logPage: (root: string, start: number, count: number, filter: LogFilter | null) =>
+    invoke<LogPage>("log_page", { root, start, count, filter }),
+  logRowOf: (root: string, oid: string, filter: LogFilter | null) =>
+    invoke<number | null>("log_row_of", { root, oid, filter }),
+  logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
   checkoutBranch: (root: string, name: string, remote: boolean) =>
     invoke<void>("checkout_branch", { root, name, remote }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>

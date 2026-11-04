@@ -513,3 +513,183 @@ fn graph_pages_match_a_full_layout() {
     ));
     assert_pages_match_reference(&idx);
 }
+
+fn filtered(idx: &LogIndex, f: &Fixture, filter: &glide_log_index::LogFilter) -> Vec<String> {
+    idx.page_filtered(&f.repo, filter, &CancelToken::new(), 0, 10_000)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|c| c.subject)
+        .collect()
+}
+
+#[test]
+fn filters() {
+    use glide_log_index::LogFilter;
+    let f = Fixture::new();
+    let write = |path: &str, text: &str| {
+        let p = f.repo.root().join(path);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+        f.git(&["add", "-A"]);
+    };
+    write("src/a.rs", "1");
+    f.git(&[
+        "commit",
+        "-q",
+        "-m",
+        "Add parser",
+        "--date=@1000000000 +0000",
+    ]);
+    write("docs/readme.md", "1");
+    f.git(&[
+        "-c",
+        "user.name=Alice",
+        "-c",
+        "user.email=alice@corp.io",
+        "commit",
+        "-q",
+        "-m",
+        "Write 100% of the docs",
+        "--author=Alice <alice@corp.io>",
+        "--date=@1100000000 +0000",
+    ]);
+    f.git(&["switch", "-q", "-c", "topic"]);
+    write("src/a.rs", "2");
+    let topic = f.commit("Fix parser bug");
+    f.git(&["switch", "-q", "main"]);
+    write("src/b.rs", "1");
+    f.git(&["commit", "-q", "-m", "Add b", "--date=@1300000000 +0000"]);
+
+    let idx = f.index();
+    update(&idx, &f.repo);
+    let all = filtered(&idx, &f, &LogFilter::default());
+    assert_eq!(all.len(), 5 - 1, "{all:?}");
+
+    let text = |t: &str| LogFilter {
+        text: t.into(),
+        ..LogFilter::default()
+    };
+    assert_eq!(
+        filtered(&idx, &f, &text("PARSER")),
+        ["Fix parser bug", "Add parser"]
+    );
+    // LIKE wildcards are literal.
+    assert_eq!(
+        filtered(&idx, &f, &text("100%")),
+        ["Write 100% of the docs"]
+    );
+    assert!(filtered(&idx, &f, &text("_")).is_empty());
+    assert_eq!(filtered(&idx, &f, &text(&topic[..7])), ["Fix parser bug"]);
+
+    let authors = LogFilter {
+        authors: vec!["corp.io".into()],
+        ..LogFilter::default()
+    };
+    assert_eq!(filtered(&idx, &f, &authors), ["Write 100% of the docs"]);
+
+    let dates = LogFilter {
+        since: Some(1_050_000_000),
+        until: Some(1_200_000_000),
+        ..LogFilter::default()
+    };
+    assert_eq!(filtered(&idx, &f, &dates), ["Write 100% of the docs"]);
+
+    let paths = LogFilter {
+        paths: vec!["src/a.rs".into()],
+        ..LogFilter::default()
+    };
+    let page = idx
+        .page_filtered(&f.repo, &paths, &CancelToken::new(), 0, 100)
+        .unwrap();
+    assert_eq!(page.rows.len(), 2);
+    assert!(page.graph.is_empty(), "path filters have no graph");
+
+    // Branch filter: only history reachable from `topic`, with a graph.
+    let branch = LogFilter {
+        branches: vec!["refs/heads/topic".into()],
+        ..LogFilter::default()
+    };
+    let page = idx
+        .page_filtered(&f.repo, &branch, &CancelToken::new(), 0, 100)
+        .unwrap();
+    let subjects: Vec<_> = page.rows.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(
+        subjects,
+        ["Fix parser bug", "Write 100% of the docs", "Add parser"]
+    );
+    assert_eq!(page.graph.len(), 3);
+    assert!(page.graph.iter().all(|g| g.lane == 0));
+    assert_eq!(
+        idx.row_of_filtered(&f.repo, &branch, &CancelToken::new(), &topic)
+            .unwrap(),
+        Some(0)
+    );
+
+    // Branch + path combine.
+    let both = LogFilter {
+        branches: vec!["refs/heads/main".into()],
+        paths: vec!["src".into()],
+        ..LogFilter::default()
+    };
+    assert_eq!(filtered(&idx, &f, &both), ["Add b", "Add parser"]);
+
+    let bad = LogFilter {
+        branches: vec!["--all".into()],
+        ..LogFilter::default()
+    };
+    assert!(idx
+        .page_filtered(&f.repo, &bad, &CancelToken::new(), 0, 10)
+        .is_err());
+
+    // Suggestions, most commits first.
+    let a = idx.authors("", 10).unwrap();
+    assert_eq!(a[0].name, "Test");
+    assert_eq!(a[0].commits, 3);
+    assert_eq!(idx.authors("alice", 10).unwrap().len(), 1);
+
+    // A view follows new commits once the index has them.
+    f.commit("Parser docs");
+    update(&idx, &f.repo);
+    assert_eq!(filtered(&idx, &f, &text("parser"))[0], "Parser docs");
+}
+
+#[test]
+fn branch_filter_graph_matches_a_layout_of_the_subset() {
+    use glide_log_index::LogFilter;
+    let f = Fixture::new();
+    branchy_history(&f, 900);
+    let idx = f.index();
+    update(&idx, &f.repo);
+    let filter = LogFilter {
+        branches: vec!["refs/heads/side".into()],
+        ..LogFilter::default()
+    };
+    let all = idx
+        .page_filtered(&f.repo, &filter, &CancelToken::new(), 0, u32::MAX)
+        .unwrap();
+    assert!(all.total > 300 && all.total < 900, "{}", all.total);
+    let mut layout = glide_log_index::Layout::new();
+    let reference: Vec<_> = all
+        .rows
+        .iter()
+        .map(|c| {
+            let oid = glide_log_index::hex_decode(&c.oid).unwrap();
+            let parents: Vec<u8> = c
+                .parents
+                .iter()
+                .flat_map(|p| glide_log_index::hex_decode(p).unwrap())
+                .collect();
+            let mut g = glide_log_index::GraphRow::default();
+            layout.step(&oid, &parents, Some(&mut g));
+            g
+        })
+        .collect();
+    for start in [0u32, 255, 256, 300] {
+        let p = idx
+            .page_filtered(&f.repo, &filter, &CancelToken::new(), start, 100)
+            .unwrap();
+        let s = p.start as usize;
+        assert_eq!(p.graph, reference[s..s + p.graph.len()], "page at {start}");
+    }
+}

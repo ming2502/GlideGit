@@ -2,10 +2,12 @@ import { useCallback, useEffect, useReducer, useRef, useState, type KeyboardEven
 import { api, errorMessage, onLogStatus } from "../api";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { GraphRow } from "../bindings/GraphRow";
+import type { LogFilter } from "../bindings/LogFilter";
 import type { LogStatus } from "../bindings/LogStatus";
 import { VirtualRows } from "../components/VirtualList";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
+import { EMPTY_FILTER, LogFilterBar, filterKey } from "./LogFilterBar";
 import { LogGraph, graphPx, graphWidth } from "./LogGraph";
 
 const ROW_H = 26;
@@ -53,48 +55,79 @@ function useLogStatus(root: string): LogStatus | null {
   return status;
 }
 
+interface RowCache {
+  /** Filter the pages belong to ("" = unfiltered). */
+  key: string;
+  pages: Map<number, Page>;
+  inflight: Set<number>;
+  /** Rows matching the filter; null until the first page answers. */
+  total: number | null;
+  /** The filtered rows have no graph (a filter left holes in the history). */
+  noGraph: boolean;
+}
+
+const newCache = (key: string): RowCache => ({ key, pages: new Map(), inflight: new Set(), total: null, noGraph: false });
+
 /**
  * Rows of the Log, read page by page around what is on screen. Pages read
  * under an older index version stay visible until their replacement arrives.
+ * A filter gets its own set of pages; its row count comes with each page.
  */
-function useLogRows(root: string, status: LogStatus | null, range: [number, number]) {
-  const pages = useRef(new Map<number, Page>());
-  const inflight = useRef(new Set<number>());
+function useLogRows(root: string, status: LogStatus | null, range: [number, number], filter: LogFilter) {
+  const key = filterKey(filter);
+  const cache = useRef<RowCache>(newCache(key));
+  if (cache.current.key !== key) cache.current = newCache(key);
+  const c = cache.current;
   const [tick, pageArrived] = useReducer((x: number) => x + 1, 0);
   const [error, setError] = useState<string | null>(null);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+
+  const total = key === "" ? (status?.total ?? 0) : c.total;
 
   useEffect(() => {
-    if (!status || status.total === 0) return;
+    if (!status) return;
+    const c = cache.current;
+    // Unknown filtered count: the first page tells.
+    const n = c.key === "" ? status.total : (c.total ?? 1);
+    if (n === 0) return;
     const first = Math.floor(Math.max(0, range[0] - PREFETCH) / PAGE);
-    const last = Math.floor(Math.min(status.total - 1, range[1] + PREFETCH) / PAGE);
-    for (let p = first; p <= last; p++) {
-      const have = pages.current.get(p);
-      const want = Math.min(PAGE, status.total - p * PAGE);
+    const last = Math.floor(Math.min(n - 1, range[1] + PREFETCH) / PAGE);
+    for (let p = Math.min(first, last); p <= last; p++) {
+      const have = c.pages.get(p);
+      const want = Math.min(PAGE, n - p * PAGE);
       if (have && have.version >= status.version && have.rows.length >= want) continue;
-      if (inflight.current.has(p)) continue;
-      inflight.current.add(p);
+      if (c.inflight.has(p)) continue;
+      c.inflight.add(p);
       api
-        .logPage(root, p * PAGE, PAGE)
+        .logPage(root, p * PAGE, PAGE, c.key ? filterRef.current : null)
         .then((page) => {
-          pages.current.set(p, { version: page.version, rows: page.rows, graph: page.graph });
+          if (cache.current !== c) return; // the filter changed meanwhile
+          c.pages.set(p, { version: page.version, rows: page.rows, graph: page.graph });
+          if (c.key) {
+            c.total = page.total;
+            c.noGraph = page.rows.length > 0 && page.graph.length === 0;
+          }
           setError(null);
           pageArrived();
         })
-        .catch((e) => setError(errorMessage(e)))
-        .finally(() => inflight.current.delete(p));
+        .catch((e) => {
+          if (cache.current === c && (e as { kind?: string })?.kind !== "cancelled") setError(errorMessage(e));
+        })
+        .finally(() => c.inflight.delete(p));
     }
     // `tick`: re-check after each arrival, in case the version moved meanwhile.
-  }, [root, status, range, tick]);
+  }, [root, status, range, tick, key]);
 
   const row = useCallback(
-    (i: number): CommitSummary | undefined => pages.current.get(Math.floor(i / PAGE))?.rows[i % PAGE],
-    [tick],
+    (i: number): CommitSummary | undefined => cache.current.pages.get(Math.floor(i / PAGE))?.rows[i % PAGE],
+    [tick, key],
   );
   const graph = useCallback(
-    (i: number): GraphRow | undefined => pages.current.get(Math.floor(i / PAGE))?.graph[i % PAGE],
-    [tick],
+    (i: number): GraphRow | undefined => cache.current.pages.get(Math.floor(i / PAGE))?.graph[i % PAGE],
+    [tick, key],
   );
-  return { row, graph, tick, error };
+  return { row, graph, tick, error, total, noGraph: c.noGraph, filtering: key !== "" && c.total === null };
 }
 
 export function LogView() {
@@ -102,8 +135,10 @@ export function LogView() {
   const status = useLogStatus(root);
   const [range, setRange] = useState<[number, number]>([0, 40]);
   const onRangeChange = useCallback((s: number, e: number) => setRange([s, e]), []);
-  const { row, graph, tick, error } = useLogRows(root, status, range);
-  const total = status?.total ?? 0;
+  const [filter, setFilter] = useState<LogFilter>(EMPTY_FILTER);
+  const filtered = filterKey(filter) !== "";
+  const { row, graph, tick, error, total: rowsTotal, noGraph, filtering } = useLogRows(root, status, range, filter);
+  const total = rowsTotal ?? 0;
   const isMerge = useCallback((i: number) => (row(i)?.parents.length ?? 0) > 1, [row]);
 
   // Graph column wide enough for the rows on screen.
@@ -112,7 +147,7 @@ export function LogView() {
     const g = graph(i);
     if (g) lanes = Math.max(lanes, graphWidth(g));
   }
-  const graphStyle = { width: graphPx(lanes) };
+  const graphStyle = { width: noGraph ? 0 : graphPx(lanes) };
 
   const [selected, setSelected] = useState(0);
   // The selected commit, so the selection can follow it when rows move.
@@ -125,21 +160,32 @@ export function LogView() {
   const cur = row(selected);
   if (cur && selectedOid.current == null) selectedOid.current = cur.oid;
 
+  // Follow the selected commit when rows move or the filter changes; if the
+  // filter hides it, select the first row.
   const version = status?.version;
+  const key = filterKey(filter);
+  const lastKey = useRef(key);
   useEffect(() => {
+    const filterChanged = lastKey.current !== key;
+    lastKey.current = key;
     const oid = selectedOid.current;
     if (!oid || version == null) return;
     let alive = true;
     api
-      .logRowOf(root, oid)
+      .logRowOf(root, oid, key ? filter : null)
       .then((r) => {
-        if (alive && r != null) setSelected(r);
+        if (!alive) return;
+        if (r != null) setSelected(r);
+        else if (filterChanged) {
+          setSelected(0);
+          selectedOid.current = null;
+        }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [root, version]);
+  }, [root, version, key]);
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const pageRows = Math.max(1, range[1] - range[0] - 1);
@@ -157,6 +203,7 @@ export function LogView() {
 
   return (
     <div className="log-view">
+      <LogFilterBar filter={filter} onChange={setFilter} />
       <div className="log-head row">
         <span className="c-subject">Subject</span>
         <span className="c-author">Author</span>
@@ -165,8 +212,14 @@ export function LogView() {
       </div>
       {error && total === 0 ? (
         <div className="empty">{error}</div>
+      ) : filtering ? (
+        <div className="empty">
+          <span className="spinner inline" /> 正在过滤…
+        </div>
       ) : total === 0 ? (
-        <div className="empty">{status?.complete ? "还没有提交" : "正在读取提交历史…"}</div>
+        <div className="empty">
+          {filtered ? "没有符合过滤条件的提交" : status?.complete ? "还没有提交" : "正在读取提交历史…"}
+        </div>
       ) : (
         <VirtualRows
           count={total}
@@ -176,7 +229,10 @@ export function LogView() {
           scrollToIndex={selected}
           onKeyDown={onKey}
           onRangeChange={onRangeChange}
-          overlay={(vp) => (
+          overlay={
+            noGraph
+              ? undefined
+              : (vp) => (
             <LogGraph
               viewport={vp}
               rowHeight={ROW_H}
@@ -186,7 +242,8 @@ export function LogView() {
               dataVersion={tick}
               left={ROW_PAD}
             />
-          )}
+          )
+          }
           renderRow={(i) => {
             const c = row(i);
             if (!c) {
@@ -235,7 +292,11 @@ export function LogView() {
         </div>
       )}
       <div className="log-foot">
-        <span>{total.toLocaleString()} 个提交</span>
+        <span>
+          {filtered
+            ? `${total.toLocaleString()} 个匹配提交（共 ${(status?.total ?? 0).toLocaleString()} 个）`
+            : `${total.toLocaleString()} 个提交`}
+        </span>
         {indexing && (
           <span className="log-indexing">
             <span className="spinner" /> 正在建立提交索引…

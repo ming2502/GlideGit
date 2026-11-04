@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use glide_git_backend::{CancelToken, GitCli, Repo, RepoSnapshot};
-use glide_log_index::{LogIndex, LogPage, LogStatus};
+use glide_log_index::{AuthorCount, LogFilter, LogIndex, LogPage, LogStatus};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{watch, Mutex, Notify};
 
@@ -65,6 +65,9 @@ struct LogDriver {
     notify: Notify,
     cancel: CancelToken,
     tx: watch::Sender<LogStatus>,
+    /// The filter the UI asked for last. Asking for a different one cancels
+    /// work still running for the previous filter (typing in the search box).
+    filter_job: StdMutex<(LogFilter, CancelToken)>,
 }
 
 impl RepoSession {
@@ -96,6 +99,7 @@ impl RepoSession {
                             notify: Notify::new(),
                             cancel: CancelToken::new(),
                             tx,
+                            filter_job: StdMutex::new((LogFilter::default(), CancelToken::new())),
                         }))
                     }
                     Err(e) => {
@@ -263,23 +267,48 @@ impl RepoSession {
         self.log.as_ref().map(|l| l.tx.subscribe())
     }
 
-    fn log_index(&self) -> Result<Arc<LogIndex>> {
-        self.log
-            .as_ref()
-            .map(|l| l.index.clone())
-            .ok_or(CoreError::NoLogIndex)
+    fn log_driver(&self) -> Result<&Arc<LogDriver>> {
+        self.log.as_ref().ok_or(CoreError::NoLogIndex)
     }
 
-    /// Rows `start..start + count` of the Log.
-    pub async fn log_page(&self, start: u32, count: u32) -> Result<LogPage> {
-        let index = self.log_index()?;
-        Ok(tokio::task::spawn_blocking(move || index.page(start, count)).await??)
+    /// Cancellation token for work on `filter`; a new filter cancels the old one.
+    fn filter_token(log: &LogDriver, filter: &LogFilter) -> CancelToken {
+        let mut job = log.filter_job.lock().unwrap_or_else(|e| e.into_inner());
+        if job.0 != *filter {
+            job.1.cancel();
+            *job = (filter.clone(), CancelToken::new());
+        }
+        job.1.clone()
     }
 
-    /// Row number of a commit in the Log.
-    pub async fn log_row_of(&self, oid: String) -> Result<Option<u32>> {
-        let index = self.log_index()?;
-        Ok(tokio::task::spawn_blocking(move || index.row_of(&oid)).await??)
+    /// Rows `start..start + count` of the Log, optionally filtered.
+    pub async fn log_page(&self, start: u32, count: u32, filter: LogFilter) -> Result<LogPage> {
+        let log = self.log_driver()?;
+        let index = log.index.clone();
+        let cancel = Self::filter_token(log, &filter);
+        let repo = self.repo.clone();
+        Ok(tokio::task::spawn_blocking(move || {
+            index.page_filtered(&repo, &filter, &cancel, start, count)
+        })
+        .await??)
+    }
+
+    /// Row number of a commit in the (filtered) Log.
+    pub async fn log_row_of(&self, oid: String, filter: LogFilter) -> Result<Option<u32>> {
+        let log = self.log_driver()?;
+        let index = log.index.clone();
+        let cancel = Self::filter_token(log, &filter);
+        let repo = self.repo.clone();
+        Ok(tokio::task::spawn_blocking(move || {
+            index.row_of_filtered(&repo, &filter, &cancel, &oid)
+        })
+        .await??)
+    }
+
+    /// Authors matching `query`, most commits first (for the author filter).
+    pub async fn log_authors(&self, query: String, limit: u32) -> Result<Vec<AuthorCount>> {
+        let index = self.log_driver()?.index.clone();
+        Ok(tokio::task::spawn_blocking(move || index.authors(&query, limit)).await??)
     }
 }
 
