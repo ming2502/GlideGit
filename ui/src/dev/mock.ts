@@ -6,6 +6,7 @@ import type { Branch } from "../bindings/Branch";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileChange } from "../bindings/FileChange";
 import type { FileDiff } from "../bindings/FileDiff";
+import type { GraphRow } from "../bindings/GraphRow";
 import type { LogStatus } from "../bindings/LogStatus";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 
@@ -94,21 +95,105 @@ const log: CommitSummary[] = Array.from({ length: 240 }, (_, i) => ({
 }));
 
 /** Simulated commit index: a long history that is "indexed" over a few seconds. */
-const MOCK_HISTORY = 120_000;
+/**
+ * Simulated commit index: a long history that is "indexed" over a few
+ * seconds. `?commits=N` in the URL changes its length (e.g. 2000000 to try
+ * the scaled scrollbar).
+ */
+const MOCK_HISTORY = Math.max(
+  1,
+  Number(new URLSearchParams(location.search).get("commits")) || 120_000,
+);
 const authors = ["Min", "Alex Chen", "Sam", "Priya Natarajan", "Jonas Weber"];
+
+// History repeats every 40 rows: a merge commit, a 10-commit side branch
+// (rows 2–11) forked from main at row 20, and main in between.
+const BLOCK = 40;
+function mockParents(r: number): number[] {
+  const b = r - (r % BLOCK);
+  const k = r % BLOCK;
+  const ps =
+    k === 0 ? [b + 1, b + 2] : k === 1 ? [b + 12] : k === 11 ? [b + 20] : [r + 1];
+  return ps.filter((p) => p < MOCK_HISTORY);
+}
+const mockOid = (r: number) => (Math.imul(r + 1, 2654435761) >>> 0).toString(16).padStart(8, "0") + r.toString(16).padStart(32, "0");
+
 function mockCommit(i: number): CommitSummary {
-  if (i < log.length) return log[i];
   const h = Math.imul(i, 2654435761) >>> 0;
+  const k = i % BLOCK;
+  const refs =
+    i === 0
+      ? ["HEAD -> feature/commit-panel", "origin/feature/commit-panel"]
+      : i === 2
+        ? ["feature/log-graph"]
+        : i === 12
+          ? ["origin/main", "main"]
+          : i % 5000 === 1
+            ? [`tag: v0.${Math.floor((MOCK_HISTORY - i) / 5000)}.0`]
+            : [];
   return {
-    oid: (h.toString(16).padStart(8, "0") + i.toString(16).padStart(8, "0")).repeat(3).slice(0, 40),
-    parents: i % 17 === 0 ? ["p1", "p2"] : ["p1"],
+    oid: mockOid(i),
+    parents: mockParents(i).map(mockOid),
     authorName: authors[h % authors.length],
     authorEmail: "dev@example.com",
     authorTime: now - i * 3100,
-    subject: `${subjects[h % subjects.length]} (#${MOCK_HISTORY - i})`,
-    refs: i % 5000 === 0 ? [`tag: v0.${Math.floor((MOCK_HISTORY - i) / 5000)}.0`] : [],
+    subject:
+      k === 0
+        ? `Merge branch 'feature/block-${Math.floor(i / BLOCK)}'`
+        : `${subjects[h % subjects.length]} (#${MOCK_HISTORY - i})`,
+    refs,
   };
 }
+
+/** TS copy of the backend layout (crates/log-index/src/graph.rs), on row numbers. */
+function layoutRows(n: number): GraphRow[] {
+  let lanes: number[] = [];
+  const out: GraphRow[] = [];
+  for (let r = 0; r < n; r++) {
+    const parents = mockParents(r);
+    const node = lanes.indexOf(r) < 0 ? lanes.length : lanes.indexOf(r);
+    const waited = (p: number) => lanes.some((l) => l !== r && l === p);
+    const next: number[] = [];
+    const moved: (number | null)[] = lanes.map(() => null);
+    const opened: number[] = [];
+    const joins: number[] = [];
+    const open = () =>
+      parents.forEach((p, k) => {
+        if (k > 0 && waited(p)) joins.push(p);
+        else {
+          opened.push(next.length);
+          next.push(p);
+        }
+      });
+    lanes.forEach((l, i) => {
+      if (i === node) open();
+      else if (l !== r) {
+        moved[i] = next.length;
+        next.push(l);
+      }
+    });
+    if (node === lanes.length) open();
+    const up: number[] = [];
+    const down: number[] = [];
+    lanes.forEach((l, i) => {
+      up.push(i, l === r ? node : i);
+      if (moved[i] != null) down.push(i, moved[i]!);
+    });
+    opened.forEach((j) => down.push(node, j));
+    joins.forEach((p) => {
+      const i = lanes.findIndex((l, i) => l === p && moved[i] != null);
+      if (i >= 0) down.push(node, moved[i]!);
+    });
+    out.push({ lane: node, up, down });
+    lanes = next;
+  }
+  return out;
+}
+// Three blocks are enough: from the second block on, the layout repeats.
+const graphBlocks = layoutRows(Math.min(MOCK_HISTORY, BLOCK * 3));
+const mockGraph = (r: number): GraphRow =>
+  r < BLOCK * 2 || MOCK_HISTORY <= BLOCK * 3 ? graphBlocks[r] : graphBlocks[BLOCK + (r % BLOCK)];
+
 const indexed = new Map<string, number>();
 function logStatus(root: string): LogStatus {
   const total = indexed.get(root) ?? 0;
@@ -120,7 +205,7 @@ function startIndexing(root: string) {
   indexed.set(root, 0);
   let total = 0;
   const step = () => {
-    total = Math.min(MOCK_HISTORY, total === 0 ? 300 : total + 6000);
+    total = Math.min(MOCK_HISTORY, total === 0 ? 300 : total + Math.max(6000, Math.ceil(MOCK_HISTORY / 20)));
     indexed.set(root, total);
     void emit("log-status", logStatus(root));
     if (total < MOCK_HISTORY) setTimeout(step, 150);
@@ -252,13 +337,12 @@ export function installMock(): void {
         const start = Math.min(a.start as number, st.total);
         const end = Math.min(start + (a.count as number), st.total);
         const rows = Array.from({ length: end - start }, (_, k) => mockCommit(start + k));
-        // A straight line; the real layout comes from the backend.
-        const graph = rows.map((_, k) => ({ lane: 0, up: start + k > 0 ? [0, 0] : [], down: [0, 0] }));
+        const graph = rows.map((_, k) => mockGraph(start + k));
         return { start, total: st.total, version: st.version, rows, graph };
       }
       case "log_row_of": {
-        const i = log.findIndex((c) => c.oid === a.oid);
-        return i < 0 ? null : i;
+        const i = parseInt(String(a.oid).slice(8), 16);
+        return Number.isFinite(i) && mockOid(i) === a.oid ? i : null;
       }
       case "last_commit_message":
         return "Add RepoSession with serialised writes";

@@ -181,7 +181,8 @@ struct Task { id, repo, kind, priority, cancel: CancellationToken, progress: Sen
 ### 4.6 前端渲染
 
 - 所有列表虚拟化（变更树、Log、分支、diff 行）。
-- 提交图：Canvas 2D、固定行高、只重绘可视区。
+- 提交图：Canvas 2D、固定行高、只重绘可视区。画布以 sticky 方式叠在列表可视区上，不接收鼠标事件；颜色按列分配，取自 CSS 变量 `--graph-0` 至 `--graph-7`，主题切换时重绘。
+- 超长列表：虚拟列表以「虚拟像素」（行号 × 行高）记录滚动位置。总高度超过 800 万像素时，滚动条按比例缩放，滚轮事件改为按虚拟像素滚动，以免浏览器的元素高度上限（约 3350 万像素）截断列表。
 - Diff：CodeMirror 6（M2），gutter 内嵌勾选框实现行级提交。
 - 乐观更新：如 stage 立即生效，失败回滚并提示。
 

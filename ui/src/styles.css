@@ -28,6 +28,16 @@
   --diff-del-gutter: #f8cdcd;
   --diff-hunk-bg: #eef2fc;
 
+  /* Commit graph, one colour per column (repeats every 8). */
+  --graph-0: #3574f0;
+  --graph-1: #e66d17;
+  --graph-2: #208a3c;
+  --graph-3: #c94f9f;
+  --graph-4: #2f9ea7;
+  --graph-5: #a87b1d;
+  --graph-6: #7b61d6;
+  --graph-7: #db3b4b;
+
   --shadow: 0 8px 28px rgb(0 0 0 / 0.16), 0 0 0 1px rgb(0 0 0 / 0.06);
   --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
@@ -60,6 +70,14 @@
     --diff-del-bg: #402a2c;
     --diff-del-gutter: #5e3336;
     --diff-hunk-bg: #2c3445;
+    --graph-0: #548af7;
+    --graph-1: #f0883e;
+    --graph-2: #5fad65;
+    --graph-3: #d670b2;
+    --graph-4: #4fb7bf;
+    --graph-5: #c9a24a;
+    --graph-6: #9d87f0;
+    --graph-7: #f0646f;
     --shadow: 0 10px 32px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
     color-scheme: dark;
   }
@@ -80,6 +98,14 @@
   --diff-del-bg: #402a2c;
   --diff-del-gutter: #5e3336;
   --diff-hunk-bg: #2c3445;
+  --graph-0: #548af7;
+  --graph-1: #f0883e;
+  --graph-2: #5fad65;
+  --graph-3: #d670b2;
+  --graph-4: #4fb7bf;
+  --graph-5: #c9a24a;
+  --graph-6: #9d87f0;
+  --graph-7: #f0646f;
   color-scheme: dark;
 }
 
@@ -238,10 +264,20 @@ input {
   min-height: 0;
   overflow: auto;
   outline: none;
+  /* Spacers change height while scrolling; the browser must not "fix" scrollTop. */
+  overflow-anchor: none;
+}
+.vlist-overlay {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 .vlist-inner {
   display: inline-block;
   min-width: 100%;
+  vertical-align: top;
 }
 .row {
   display: flex;
@@ -622,6 +658,14 @@ input {
 }
 .log-view > .empty {
   flex: 1;
+}
+.c-graph {
+  flex: none;
+  align-self: stretch;
+}
+.log-graph {
+  position: absolute;
+  top: 0;
 }
 .log-row.pending .placeholder {
   display: block;

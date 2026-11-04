@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef, useState, type KeyboardEvent } from "react";
 import { api, errorMessage, onLogStatus } from "../api";
 import type { CommitSummary } from "../bindings/CommitSummary";
+import type { GraphRow } from "../bindings/GraphRow";
 import type { LogStatus } from "../bindings/LogStatus";
 import { VirtualRows } from "../components/VirtualList";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
+import { LogGraph, graphPx, graphWidth } from "./LogGraph";
 
 const ROW_H = 26;
 /** Rows per request to the commit index. */
@@ -15,7 +17,10 @@ const PREFETCH = 150;
 interface Page {
   version: number;
   rows: CommitSummary[];
+  graph: GraphRow[];
 }
+/** Left padding of a row, where the graph column starts. */
+const ROW_PAD = 8;
 
 function RefBadge({ name }: { name: string }) {
   const cls = name.startsWith("tag: ")
@@ -71,7 +76,7 @@ function useLogRows(root: string, status: LogStatus | null, range: [number, numb
       api
         .logPage(root, p * PAGE, PAGE)
         .then((page) => {
-          pages.current.set(p, { version: page.version, rows: page.rows });
+          pages.current.set(p, { version: page.version, rows: page.rows, graph: page.graph });
           setError(null);
           pageArrived();
         })
@@ -85,7 +90,11 @@ function useLogRows(root: string, status: LogStatus | null, range: [number, numb
     (i: number): CommitSummary | undefined => pages.current.get(Math.floor(i / PAGE))?.rows[i % PAGE],
     [tick],
   );
-  return { row, error };
+  const graph = useCallback(
+    (i: number): GraphRow | undefined => pages.current.get(Math.floor(i / PAGE))?.graph[i % PAGE],
+    [tick],
+  );
+  return { row, graph, tick, error };
 }
 
 export function LogView() {
@@ -93,8 +102,17 @@ export function LogView() {
   const status = useLogStatus(root);
   const [range, setRange] = useState<[number, number]>([0, 40]);
   const onRangeChange = useCallback((s: number, e: number) => setRange([s, e]), []);
-  const { row, error } = useLogRows(root, status, range);
+  const { row, graph, tick, error } = useLogRows(root, status, range);
   const total = status?.total ?? 0;
+  const isMerge = useCallback((i: number) => (row(i)?.parents.length ?? 0) > 1, [row]);
+
+  // Graph column wide enough for the rows on screen.
+  let lanes = 1;
+  for (let i = range[0]; i < range[1]; i++) {
+    const g = graph(i);
+    if (g) lanes = Math.max(lanes, graphWidth(g));
+  }
+  const graphStyle = { width: graphPx(lanes) };
 
   const [selected, setSelected] = useState(0);
   // The selected commit, so the selection can follow it when rows move.
@@ -158,11 +176,23 @@ export function LogView() {
           scrollToIndex={selected}
           onKeyDown={onKey}
           onRangeChange={onRangeChange}
+          overlay={(vp) => (
+            <LogGraph
+              viewport={vp}
+              rowHeight={ROW_H}
+              lanes={lanes}
+              graph={graph}
+              isMerge={isMerge}
+              dataVersion={tick}
+              left={ROW_PAD}
+            />
+          )}
           renderRow={(i) => {
             const c = row(i);
             if (!c) {
               return (
                 <div key={`pending-${i}`} className="row log-row pending" style={{ height: ROW_H }}>
+                  <span className="c-graph" style={graphStyle} />
                   <span className="c-subject">
                     <span className="placeholder" />
                   </span>
@@ -176,6 +206,7 @@ export function LogView() {
                 style={{ height: ROW_H }}
                 onMouseDown={() => select(i)}
               >
+                <span className="c-graph" style={graphStyle} />
                 <span className="c-subject">
                   {c.refs.map((r) => (
                     <RefBadge key={r} name={r} />
