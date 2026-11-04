@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
-use glide_git_backend::{CommitDetails, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
+use glide_git_backend::{
+    CommitDetails, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot, ResetMode,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -267,6 +269,66 @@ pub async fn checkout_branch(
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     Ok(s.write(move |r| r.checkout_branch(&name, remote)).await?)
+}
+
+#[tauri::command]
+pub async fn checkout_detached(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.checkout_detached(&oid)).await?)
+}
+
+#[tauri::command]
+pub async fn create_tag(
+    state: State<'_, AppState>,
+    root: String,
+    name: String,
+    oid: String,
+    message: Option<String>,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.write(move |r| r.create_tag(&name, &oid, message.as_deref()))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn cherry_pick(state: State<'_, AppState>, root: String, oid: String) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.cherry_pick(&oid)).await?)
+}
+
+#[tauri::command]
+pub async fn revert(state: State<'_, AppState>, root: String, oid: String) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.revert(&oid)).await?)
+}
+
+#[tauri::command]
+pub async fn reset(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+    mode: ResetMode,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.reset(&oid, mode)).await?)
+}
+
+#[tauri::command]
+pub async fn abort_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(|r| r.abort_operation()).await?)
+}
+
+#[tauri::command]
+pub async fn continue_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(|r| r.continue_operation()).await?)
 }
 
 #[tauri::command]

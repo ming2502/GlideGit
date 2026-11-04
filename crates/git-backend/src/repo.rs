@@ -20,11 +20,47 @@ pub struct Repo {
     git_dir: PathBuf,
 }
 
+/// How `git reset` treats the index and working tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ResetMode {
+    /// Move the branch only; changes stay staged.
+    Soft,
+    /// Also reset the index; changes stay in the working tree.
+    Mixed,
+    /// Discard all changes.
+    Hard,
+    /// Like hard, but refuse if local changes would be lost.
+    Keep,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PullMode {
     Merge,
     Rebase,
     FastForwardOnly,
+}
+
+/// New branch and tag names reach git as arguments. git validates the
+/// details; this rules out anything that could be read as an option.
+fn check_ref_name(name: &str) -> Result<()> {
+    let bad = name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('/')
+        || name.ends_with('/')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("@{")
+        || name
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c));
+    if bad {
+        Err(GitError::Invalid(format!("invalid name: {name:?}")))
+    } else {
+        Ok(())
+    }
 }
 
 /// Commit ids reach git as arguments: accept hex only, never an option.
@@ -439,6 +475,12 @@ impl Repo {
     }
 
     pub fn create_branch(&self, name: &str, start: Option<&str>, checkout: bool) -> Result<()> {
+        check_ref_name(name)?;
+        if let Some(s) = start {
+            if s.starts_with('-') {
+                return Err(GitError::Invalid(format!("invalid start point: {s:?}")));
+            }
+        }
         let mut args = if checkout {
             vec!["switch", "-c", name]
         } else {
@@ -448,6 +490,104 @@ impl Repo {
             args.push(s);
         }
         self.write(&args)
+    }
+
+    /// Check out a commit without a branch (detached HEAD).
+    pub fn checkout_detached(&self, oid: &str) -> Result<()> {
+        check_oid(oid)?;
+        self.write(&["switch", "--detach", oid])
+    }
+
+    /// Create a tag at `oid`: annotated when `message` is given, else lightweight.
+    pub fn create_tag(&self, name: &str, oid: &str, message: Option<&str>) -> Result<()> {
+        check_ref_name(name)?;
+        check_oid(oid)?;
+        match message.map(str::trim).filter(|m| !m.is_empty()) {
+            Some(m) => {
+                self.cli.run(
+                    &self.root,
+                    &["tag", "-a", name, oid, "-F", "-"],
+                    RunOptions::write().stdin(m.as_bytes().to_vec()),
+                )?;
+                Ok(())
+            }
+            None => self.write(&["tag", name, oid]),
+        }
+    }
+
+    fn is_merge(&self, oid: &str) -> bool {
+        self.cli
+            .run(
+                &self.root,
+                &["rev-parse", "--verify", "-q", &format!("{oid}^2")],
+                RunOptions::read(),
+            )
+            .is_ok()
+    }
+
+    /// Apply a commit on top of HEAD. A merge commit is applied relative to
+    /// its first parent. On conflicts git stops; see [`Repo::operation`].
+    pub fn cherry_pick(&self, oid: &str) -> Result<()> {
+        check_oid(oid)?;
+        if self.is_merge(oid) {
+            self.write(&["cherry-pick", "-m", "1", oid])
+        } else {
+            self.write(&["cherry-pick", oid])
+        }
+    }
+
+    /// Commit the inverse of a commit, with git's default message.
+    pub fn revert(&self, oid: &str) -> Result<()> {
+        check_oid(oid)?;
+        if self.is_merge(oid) {
+            self.write(&["revert", "--no-edit", "-m", "1", oid])
+        } else {
+            self.write(&["revert", "--no-edit", oid])
+        }
+    }
+
+    /// Move the current branch (or detached HEAD) to `oid`.
+    pub fn reset(&self, oid: &str, mode: ResetMode) -> Result<()> {
+        check_oid(oid)?;
+        let flag = match mode {
+            ResetMode::Soft => "--soft",
+            ResetMode::Mixed => "--mixed",
+            ResetMode::Hard => "--hard",
+            ResetMode::Keep => "--keep",
+        };
+        self.write(&["reset", "-q", flag, oid])
+    }
+
+    /// Abort the merge, rebase, cherry-pick or revert in progress.
+    pub fn abort_operation(&self) -> Result<()> {
+        let cmd = match self.operation() {
+            Some(RepoOperation::Merge) => "merge",
+            Some(RepoOperation::Rebase) => "rebase",
+            Some(RepoOperation::CherryPick) => "cherry-pick",
+            Some(RepoOperation::Revert) => "revert",
+            None => return Ok(()),
+        };
+        self.write(&[cmd, "--abort"])
+    }
+
+    /// Continue the operation in progress once conflicts are resolved and
+    /// staged, keeping the prepared commit message (no editor is opened).
+    pub fn continue_operation(&self) -> Result<()> {
+        let cmd = match self.operation() {
+            Some(RepoOperation::Merge) => "merge",
+            Some(RepoOperation::Rebase) => "rebase",
+            Some(RepoOperation::CherryPick) => "cherry-pick",
+            Some(RepoOperation::Revert) => "revert",
+            None => return Ok(()),
+        };
+        self.write(&[
+            "-c",
+            "core.editor=true",
+            "-c",
+            "sequence.editor=true",
+            cmd,
+            "--continue",
+        ])
     }
 
     pub fn delete_branch(&self, name: &str, force: bool) -> Result<()> {

@@ -479,3 +479,104 @@ fn commit_details_and_file_diffs() {
     ));
     assert!(repo.commit_details("deadbeef").is_err());
 }
+
+fn head(repo: &Repo) -> String {
+    repo.cli()
+        .run(repo.root(), &["rev-parse", "HEAD"], RunOptions::read())
+        .unwrap()
+        .stdout_str()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn log_actions_tag_cherry_pick_revert_reset() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n");
+    repo.stage_all().unwrap();
+    let c1 = repo.commit("one", false).unwrap();
+    write(root, "a.txt", "1\n2\n");
+    repo.stage_all().unwrap();
+    let c2 = repo.commit("two", false).unwrap();
+
+    // Tags: lightweight and annotated.
+    repo.create_tag("v1", &c1, None).unwrap();
+    repo.create_tag("v2", &c2, Some("Release 2")).unwrap();
+    let tags = repo
+        .cli()
+        .run(root, &["tag", "-n1"], RunOptions::read())
+        .unwrap()
+        .stdout_str()
+        .into_owned();
+    assert!(tags.contains("v1") && tags.contains("Release 2"), "{tags}");
+    assert!(repo.create_tag("-f", &c1, None).is_err());
+    assert!(repo.create_tag("bad name", &c1, None).is_err());
+    assert!(repo.create_branch("--force", None, false).is_err());
+
+    // Branch from c1, cherry-pick c2 onto it.
+    repo.create_branch("side", Some(&c1), true).unwrap();
+    repo.cherry_pick(&c2).unwrap();
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "1\n2\n");
+    // (Same parent, tree and timestamps: git may produce the identical commit.)
+
+    // Revert it again.
+    repo.revert(&head(&repo)).unwrap();
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "1\n");
+    assert!(repo.operation().is_none());
+
+    // Reset modes.
+    let tip = head(&repo);
+    // tip has c1's content; moving to c2 leaves that content staged.
+    repo.reset(&c2, ResetMode::Soft).unwrap();
+    assert_eq!(head(&repo), c2);
+    assert!(
+        !repo.status().unwrap().1.is_empty(),
+        "soft keeps changes staged"
+    );
+    repo.reset(&tip, ResetMode::Hard).unwrap();
+    assert_eq!(head(&repo), tip);
+    write(root, "a.txt", "dirty\n");
+    // c2 changes a.txt, which has local edits: --keep refuses.
+    assert!(
+        repo.reset(&c2, ResetMode::Keep).is_err(),
+        "keep refuses to lose changes"
+    );
+    repo.reset(&c1, ResetMode::Hard).unwrap();
+    assert!(repo.status().unwrap().1.is_empty());
+
+    // Detached checkout.
+    repo.checkout_detached(&c2).unwrap();
+    assert_eq!(head(&repo), c2);
+    assert!(repo.status().unwrap().0.branch.is_none());
+}
+
+#[test]
+fn conflicting_cherry_pick_can_be_aborted_or_continued() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "base\n");
+    repo.stage_all().unwrap();
+    let base = repo.commit("base", false).unwrap();
+    write(root, "a.txt", "main\n");
+    repo.stage_all().unwrap();
+    let on_main = repo.commit("main change", false).unwrap();
+    repo.create_branch("other", Some(&base), true).unwrap();
+    write(root, "a.txt", "other\n");
+    repo.stage_all().unwrap();
+    repo.commit("other change", false).unwrap();
+
+    assert!(repo.cherry_pick(&on_main).is_err());
+    assert_eq!(repo.operation(), Some(RepoOperation::CherryPick));
+    repo.abort_operation().unwrap();
+    assert_eq!(repo.operation(), None);
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "other\n");
+
+    // Resolve and continue: the original message is kept, no editor opens.
+    assert!(repo.cherry_pick(&on_main).is_err());
+    write(root, "a.txt", "resolved\n");
+    repo.stage_all().unwrap();
+    repo.continue_operation().unwrap();
+    assert_eq!(repo.operation(), None);
+    assert_eq!(repo.last_commit_message().unwrap(), "main change");
+}

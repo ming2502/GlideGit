@@ -46,6 +46,12 @@ const MAIN_REPO = "/Users/demo/GlideGit";
 const DEMO_REPOS = [MAIN_REPO, "/Users/demo/website", "/Users/demo/infra"];
 let pickCount = 0;
 
+/** Operation in progress in the main demo repo (a conflicting cherry-pick). */
+let operation: RepoSnapshot["operation"] = null;
+function publish(): void {
+  void emit("repo-snapshot", { root: MAIN_REPO, snapshot: snapshot(MAIN_REPO) });
+}
+
 function snapshot(root: string = MAIN_REPO): RepoSnapshot {
   if (root !== MAIN_REPO) {
     // Secondary demo repos: a clean-ish tree on main.
@@ -62,7 +68,7 @@ function snapshot(root: string = MAIN_REPO): RepoSnapshot {
   return {
     root: MAIN_REPO,
     head: { branch: "feature/commit-panel", oid: "a1b2c3d4", detached: false, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 },
-    operation: null,
+    operation,
     changes,
     branches: {
       local: [
@@ -389,7 +395,7 @@ export function installMock(): void {
           !paths.includes(c.path)
             ? c
             : cmd === "stage"
-              ? { ...c, staged: c.unstaged === "untracked" ? "added" : (c.unstaged ?? c.staged), unstaged: null }
+              ? { ...c, staged: c.unstaged === "untracked" ? "added" : (c.unstaged ?? c.staged), unstaged: null, conflicted: false }
               : { ...c, unstaged: c.staged === "added" ? "untracked" : (c.staged ?? c.unstaged), staged: null },
         );
         return null;
@@ -419,6 +425,33 @@ export function installMock(): void {
           files,
         };
       }
+      case "checkout_detached":
+      case "create_tag":
+      case "revert":
+      case "reset":
+        return sleep(200).then(() => null);
+      case "cherry_pick":
+        // Demo: cherry-picks stop on a conflict.
+        return sleep(250).then(() => {
+          operation = "cherryPick";
+          changes = [
+            { path: "crates/log-index/src/lib.rs", origPath: null, staged: null, unstaged: "modified", conflicted: true },
+            ...changes,
+          ];
+          publish();
+          throw {
+            kind: "gitFailed",
+            message: `error: could not apply ${String(a.oid).slice(0, 7)}... Log filters\nCONFLICT (content): Merge conflict in crates/log-index/src/lib.rs`,
+          };
+        });
+      case "abort_operation":
+      case "continue_operation":
+        return sleep(200).then(() => {
+          operation = null;
+          changes = changes.filter((c) => !c.conflicted);
+          publish();
+          return null;
+        });
       case "commit_file_diff":
         return diffFor(a.path as string);
       case "log_authors": {

@@ -95,6 +95,9 @@ interface RepoState {
   setPullMode: (m: PullMode) => void;
 }
 
+/** "推送失败", but "Cherry-pick 1a2b3c4d 失败" after Latin text. */
+const failedTitle = (title: string) => (/[A-Za-z0-9]$/.test(title) ? `${title} 失败` : `${title}失败`);
+
 let seq = 0;
 let diffSeq = 0;
 
@@ -277,7 +280,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       if (success) get().toast({ kind: "success", title: success });
       return r;
     } catch (e) {
-      get().toast({ kind: "error", title: `${title}失败`, detail: errorMessage(e) });
+      get().toast({ kind: "error", title: failedTitle(title), detail: errorMessage(e) });
       return undefined;
     } finally {
       set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
@@ -295,7 +298,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       return true;
     } catch (e) {
       if (isCancelled(e)) get().toast({ kind: "info", title: `${title}已取消` });
-      else get().toast({ kind: "error", title: `${title}失败`, detail: errorMessage(e) });
+      else get().toast({ kind: "error", title: failedTitle(title), detail: errorMessage(e) });
       return false;
     } finally {
       set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));

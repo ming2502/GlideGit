@@ -11,6 +11,9 @@ import { load, save } from "../lib/storage";
 import { CommitDetailsPane } from "./CommitDetails";
 import { EMPTY_FILTER, LogFilterBar, filterKey } from "./LogFilterBar";
 import { LogGraph, graphPx, graphWidth } from "./LogGraph";
+import { ContextMenu, type MenuItem } from "../components/ContextMenu";
+import type { ResetMode } from "../bindings/ResetMode";
+import { NewRefDialog, ResetDialog } from "./LogDialogs";
 
 const ROW_H = 26;
 /** Rows per request to the commit index. */
@@ -197,8 +200,91 @@ export function LogView() {
     else if (e.key === "PageUp") select(selected - pageRows);
     else if (e.key === "Home") select(0);
     else if (e.key === "End") select(total - 1);
-    else return;
+    else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+      const c = row(selected);
+      const el = (e.currentTarget as HTMLElement).querySelector(".log-row.selected");
+      const r = el?.getBoundingClientRect();
+      if (c && r) setMenu({ x: r.left + 40, y: r.bottom, commit: c });
+    } else return;
     e.preventDefault();
+  };
+
+  // ---------------------------------------------------------------- actions
+  const snapshot = useRepo((s) => s.snapshot);
+  const runTask = useRepo((s) => s.runTask);
+  const ask = useRepo((s) => s.ask);
+  const [menu, setMenu] = useState<{ x: number; y: number; commit: CommitSummary } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: "branch" | "tag" | "reset"; commit: CommitSummary } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const currentBranch = snapshot?.head.branch ?? null;
+  const localBranches = new Set(snapshot?.branches.local.map((b) => b.name) ?? []);
+  const short = (c: CommitSummary) => c.oid.slice(0, 8);
+
+  const menuItems = (c: CommitSummary): (MenuItem | "separator")[] => {
+    // Branches pointing at this commit can be checked out by name.
+    const names = c.refs.map((r) => r.replace(/^HEAD -> /, "")).filter((r) => !r.startsWith("tag: ") && r !== "HEAD");
+    const checkouts: MenuItem[] = names
+      .filter((n) => n !== currentBranch)
+      .map((n) =>
+        localBranches.has(n)
+          ? { label: `Checkout ${n}`, onClick: () => void runTask(`切换到 ${n}`, (r) => api.checkoutBranch(r, n, false)) }
+          : { label: `Checkout ${n}（新建跟踪分支）`, onClick: () => void runTask(`切换到 ${n}`, (r) => api.checkoutBranch(r, n, true)) },
+      );
+    return [
+      ...checkouts,
+      {
+        label: "Checkout 此修订（游离 HEAD）",
+        onClick: async () => {
+          const ok = await ask({
+            title: "切换到游离 HEAD？",
+            message: `将检出 ${short(c)}，不在任何分支上。\n在此状态下的新提交需要新建分支才能保留。`,
+            confirmLabel: "Checkout",
+          });
+          if (ok) void runTask(`检出 ${short(c)}`, (r) => api.checkoutDetached(r, c.oid));
+        },
+      },
+      { label: "新建分支…", onClick: () => setDialog({ kind: "branch", commit: c }) },
+      { label: "新建标签…", onClick: () => setDialog({ kind: "tag", commit: c }) },
+      "separator",
+      {
+        label: "Cherry-pick",
+        disabled: !!snapshot?.operation,
+        onClick: () => void runTask(`Cherry-pick ${short(c)}`, (r) => api.cherryPick(r, c.oid), `已 cherry-pick ${short(c)}`),
+      },
+      {
+        label: "Revert 提交",
+        disabled: !!snapshot?.operation,
+        onClick: () => void runTask(`Revert ${short(c)}`, (r) => api.revert(r, c.oid), `已 revert ${short(c)}`),
+      },
+      "separator",
+      {
+        label: currentBranch ? `将 ${currentBranch} 重置到此处…` : "将 HEAD 重置到此处…",
+        disabled: !!snapshot?.operation,
+        onClick: () => setDialog({ kind: "reset", commit: c }),
+      },
+      "separator",
+      {
+        label: "复制提交 hash",
+        onClick: () =>
+          void navigator.clipboard
+            .writeText(c.oid)
+            .then(() => useRepo.getState().toast({ kind: "success", title: "已复制提交 hash" })),
+      },
+    ];
+  };
+
+  const doReset = async (c: CommitSummary, mode: ResetMode) => {
+    setDialog(null);
+    if (mode === "hard") {
+      const ok = await ask({
+        title: "确定执行 Hard 重置？",
+        message: `${currentBranch ?? "HEAD"} 将指向 ${short(c)}，工作区和暂存区中的所有修改都会被丢弃，无法恢复。`,
+        confirmLabel: "丢弃修改并重置",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    void runTask(`重置到 ${short(c)}`, (r) => api.reset(r, c.oid, mode), `已重置到 ${short(c)}`);
   };
 
   const indexing = status != null && !status.complete;
@@ -299,6 +385,11 @@ export function LogView() {
                 className={`row log-row ${i === selected ? "selected" : ""}`}
                 style={{ height: ROW_H }}
                 onMouseDown={() => select(i)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  select(i);
+                  setMenu({ x: e.clientX, y: e.clientY, commit: c });
+                }}
               >
                 <span className="c-graph" style={graphStyle} />
                 <span className="c-subject">
@@ -337,6 +428,29 @@ export function LogView() {
         {status?.error && <span className="log-error" title={status.error}>索引更新失败：{status.error}</span>}
         {error && total > 0 && <span className="log-error">{error}</span>}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.commit)} onClose={closeMenu} />}
+      {dialog && dialog.kind !== "reset" && (
+        <NewRefDialog
+          kind={dialog.kind}
+          commit={dialog.commit}
+          onCancel={() => setDialog(null)}
+          onSubmit={(name, { checkout, message }) => {
+            const c = dialog.commit;
+            setDialog(null);
+            if (dialog.kind === "branch")
+              void runTask(`新建分支 ${name}`, (r) => api.createBranch(r, name, c.oid, checkout), `已创建分支 ${name}`);
+            else void runTask(`新建标签 ${name}`, (r) => api.createTag(r, name, c.oid, message || null), `已创建标签 ${name}`);
+          }}
+        />
+      )}
+      {dialog?.kind === "reset" && (
+        <ResetDialog
+          commit={dialog.commit}
+          branch={currentBranch}
+          onCancel={() => setDialog(null)}
+          onSubmit={(mode) => void doReset(dialog.commit, mode)}
+        />
+      )}
     </div>
   );
 }

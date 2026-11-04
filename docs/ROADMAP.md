@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-5（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情）已完成，下一步是 M2-6（Log 右键菜单）。
+**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-6（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单）已完成，下一步是 M2-7（CodeMirror diff）。
 
 ## 里程碑总览
 
@@ -76,7 +76,11 @@
   - 变更文件按目录分组，显示类型、重命名前的路径和增删行数，↑↓ 切换文件；右侧显示所选文件的 diff。
   - 后端用 `git log -1` 取提交信息，`git diff-tree -r -z -M --raw --numstat` 取文件和行数，各一次进程调用。合并提交与第一个父提交比较，根提交与空树比较。
   - 在 Log 中快速翻动时，只为停下来的那个提交读取详情（60 毫秒去抖，旧请求结果作废）。
-- [ ] M2-6 Log 右键菜单：checkout、新建分支或标签、cherry-pick、revert、reset
+- [x] M2-6 Log 右键菜单：checkout、新建分支或标签、cherry-pick、revert、reset
+  - 右键菜单（也可按菜单键或 Shift+F10）：checkout 该提交上的分支、checkout 游离 HEAD（先确认）、新建分支、新建标签（填写说明即为附注标签）、cherry-pick、revert、将当前分支重置到此处、复制 hash。
+  - 重置对话框可选 Soft / Mixed / Keep / Hard 四种模式，选 Hard 还要再确认一次。合并提交做 cherry-pick 或 revert 时，以第一个父提交为基准（`-m 1`）。
+  - 新增全局横幅：合并、变基、cherry-pick 或 revert 中途停下时显示，带「中止」和「继续」。仍有冲突时「继续」不可用；继续时不打开编辑器，沿用 git 准备好的提交信息。
+  - 新分支名、标签名和提交 id 在传给 git 前检查，不能被当作命令行选项。
 - [ ] M2-7 CodeMirror 6 diff：并排视图、字符级差异、折叠
 - [ ] M2-8 块级 / 行级 stage 与 discard（`git apply --cached`）
 - [ ] M2-9 Stash 列表、应用、弹出、查看 diff

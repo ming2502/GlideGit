@@ -10,6 +10,7 @@ import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
 import { AskpassDialog } from "./views/AskpassDialog";
+import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
 import { TabBar } from "./views/TabBar";
 import { Welcome } from "./views/Welcome";
@@ -117,6 +118,7 @@ export function App() {
         <>
           <TabBar />
           <Toolbar />
+          <OperationBanner />
           {/* Keyed by repo: per-repo view state (commit draft, scroll) resets on tab switch. */}
           <main className="main" key={root}>
             {view === "changes" ? <ChangesLayout /> : <LogView />}

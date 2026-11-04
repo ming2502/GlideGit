@@ -12,6 +12,7 @@ import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
+import type { ResetMode } from "./bindings/ResetMode";
 
 export interface AppInfo {
   version: string;
@@ -61,6 +62,14 @@ export const api = {
     invoke<FileDiff>("commit_file_diff", { root, oid, parent, path, origPath }),
   checkoutBranch: (root: string, name: string, remote: boolean) =>
     invoke<void>("checkout_branch", { root, name, remote }),
+  checkoutDetached: (root: string, oid: string) => invoke<void>("checkout_detached", { root, oid }),
+  createTag: (root: string, name: string, oid: string, message: string | null) =>
+    invoke<void>("create_tag", { root, name, oid, message }),
+  cherryPick: (root: string, oid: string) => invoke<void>("cherry_pick", { root, oid }),
+  revert: (root: string, oid: string) => invoke<void>("revert", { root, oid }),
+  reset: (root: string, oid: string, mode: ResetMode) => invoke<void>("reset", { root, oid, mode }),
+  abortOperation: (root: string) => invoke<void>("abort_operation", { root }),
+  continueOperation: (root: string) => invoke<void>("continue_operation", { root }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>
     invoke<void>("create_branch", { root, name, start, checkout }),
   deleteBranch: (root: string, name: string, force: boolean) =>

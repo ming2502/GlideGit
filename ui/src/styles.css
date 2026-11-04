@@ -294,10 +294,83 @@ input {
   display: flex;
   flex-direction: column;
 }
-.banner {
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--k-conflicted) 16%, transparent);
+.op-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--k-conflicted) 14%, var(--bg));
   border-bottom: 1px solid var(--border-strong);
+}
+.op-banner b {
+  margin: 0 2px;
+}
+.op-banner .spacer {
+  flex: 1;
+}
+.op-banner .btn {
+  height: 24px;
+  padding: 0 10px;
+}
+.log-dialog {
+  width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.log-dialog h3 {
+  margin: 0;
+}
+.log-dialog-commit {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.log-dialog-field .lf-input {
+  font-size: 13px;
+}
+.log-dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.log-dialog-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.log-dialog-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.log-dialog-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.log-dialog-mode > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.log-dialog-mode.on {
+  background: var(--selection);
+}
+.log-dialog .dialog-actions {
+  margin-top: 4px;
 }
 .panel-header {
   height: 32px;

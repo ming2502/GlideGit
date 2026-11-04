@@ -215,12 +215,6 @@ export function CommitPanel() {
 
   return (
     <div className="commit-panel">
-      {snapshot.operation && (
-        <div className="banner">
-          正在进行 <b>{snapshot.operation}</b>
-          {groups.conflicts.length > 0 ? `，还有 ${groups.conflicts.length} 个冲突待解决` : "，解决后提交即可完成"}
-        </div>
-      )}
       <div className="panel-header">
         <span className="panel-title">Changes</span>
         <span className="muted">{snapshot.changes.length ? `${includedCount}/${snapshot.changes.length} 已选` : ""}</span>
