@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-7（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff）已完成，下一步是 M2-8（块级 / 行级 stage）。
+**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-8（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage）已完成，下一步是 M2-9（Stash）。
 
 ## 里程碑总览
 
@@ -86,7 +86,13 @@
   - 根据文件名按需加载语法高亮（`@codemirror/language-data`），配色取自主题变量，亮色、暗色各一套。CodeMirror 单独打包、首次用到时才加载：主包 296 KB，diff 编辑器 318 KB。
   - 后端新增「读取文件两侧全文」：工作区直接读磁盘，暂存区和提交用 `git cat-file --batch` 流式读取；单侧超过 8 MB 或含 NUL 字节（二进制）时只返回标记。Changes 视图和提交详情都改用这种方式。
   - diff 计算超时 1.5 秒后退回较粗的结果，大文件不会卡住界面。
-- [ ] M2-8 块级 / 行级 stage 与 discard（`git apply --cached`）
+- [x] M2-8 块级 / 行级 stage 与 discard（`git apply --cached`）
+  - 在 Changes 视图的 diff 中，每个修改块有三态勾选框（未暂存 / 部分 / 已暂存），每个增删行有单独的开关。并排布局下删除行和新增行都能按行勾选；统一布局只支持整块勾选。右键勾选框可以暂存、取消暂存，或丢弃此块（先确认）。
+  - 实现上没有用 `git apply --cached`。前端按勾选结果算出这个文件在暂存区应有的完整内容（HEAD 加上选中的块和行），后端用 `git hash-object -w --path` 加 `update-index --cacheinfo` 写入，文件模式沿用原条目。这样不会遇到补丁上下文和偏移对不上的问题，CRLF 等换行转换也由 git 自己的 clean 过滤器处理。
+  - 勾选状态由三个版本推算：后端随 HEAD↔工作区的 diff 一并返回暂存区内容，前端把它逐块匹配回 diff 的修改块。
+  - 丢弃块会直接写回工作区文件，写之前先确认文件在加载 diff 之后没被改过；如果这块已经暂存，会一起取消暂存。
+  - 非 UTF-8 文件、含单独 CR 的文件、冲突文件和已删除文件不提供块级操作。
+  - 前端加入 vitest（`pnpm test`）并接入 CI：19 个暂存逻辑单测，其中一部分直接使用编辑器自己的 diff 算法生成的修改块。
 - [ ] M2-9 Stash 列表、应用、弹出、查看 diff
 - [ ] M2-10 用 gix 读取热点数据（status、revwalk）；在大仓库上跑基准对比
 - [ ] M2-11 快照缓存（stale-while-revalidate 启动）

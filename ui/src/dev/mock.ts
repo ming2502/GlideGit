@@ -243,8 +243,12 @@ function textsFor(path: string) {
     .replace("- Branch popup", "- Branch popup\n- Log filters and commit details")
     .replace("padding: 7px;", "padding: 8px 12px;");
   next = next.replace("/// Handles request number 120.", "/// Handles request number 120.\n/// Retries once when the cache is cold.");
-  return { path, old, new: next, binary: false, tooLarge: false };
+  next = worktree.get(path) ?? next;
+  return { path, old, new: next, binary: false, tooLarge: false, index: staged.get(path) ?? old, lossy: false };
 }
+/** Demo index and working-tree contents changed by block staging / discard. */
+const staged = new Map<string, string>();
+const worktree = new Map<string, string>();
 
 function diffFor(path: string): FileDiff {
   const lines: FileDiff["hunks"][number]["lines"] = [];
@@ -475,6 +479,19 @@ export function installMock(): void {
         return sleep(200).then(() => {
           operation = null;
           changes = changes.filter((c) => !c.conflicted);
+          publish();
+          return null;
+        });
+      case "stage_content":
+        staged.set(a.path as string, a.content as string);
+        return sleep(60).then(() => {
+          changes = changes.map((c) => (c.path === a.path ? { ...c, staged: "modified" } : c));
+          publish();
+          return null;
+        });
+      case "write_worktree_file":
+        worktree.set(a.path as string, a.content as string);
+        return sleep(60).then(() => {
           publish();
           return null;
         });

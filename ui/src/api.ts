@@ -56,6 +56,10 @@ export const api = {
     invoke<number | null>("log_row_of", { root, oid, filter }),
   logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
   commitDetails: (root: string, oid: string) => invoke<CommitDetails>("commit_details", { root, oid }),
+  stageContent: (root: string, path: string, content: string) =>
+    invoke<void>("stage_content", { root, path, content }),
+  writeWorktreeFile: (root: string, path: string, content: string, expected: string) =>
+    invoke<void>("write_worktree_file", { root, path, content, expected }),
   commitFileTexts: (root: string, oid: string, parent: string | null, path: string, origPath: string | null) =>
     invoke<FileTexts>("commit_file_texts", { root, oid, parent, path, origPath }),
   fileTexts: (root: string, path: string, origPath: string | null, mode: DiffMode, untracked: boolean) =>

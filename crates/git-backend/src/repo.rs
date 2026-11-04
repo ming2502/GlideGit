@@ -20,6 +20,15 @@ pub struct Repo {
     git_dir: PathBuf,
 }
 
+/// Text the diff editor cannot round-trip: invalid UTF-8, or a CR that does
+/// not start a CRLF (the editor would treat it as a line break).
+fn is_lossy(d: &[u8]) -> bool {
+    std::str::from_utf8(d).is_err()
+        || d.iter()
+            .enumerate()
+            .any(|(i, &b)| b == b'\r' && d.get(i + 1) != Some(&b'\n'))
+}
+
 /// Where one side of a file comparison comes from.
 enum Side<'a> {
     Missing,
@@ -383,7 +392,81 @@ impl Repo {
                 DiffMode::Head => (Side::Rev("HEAD", before), Side::Worktree(path)),
             }
         };
-        self.texts(path, old, new)
+        let mut texts = self.texts(path, old, new)?;
+        // HEAD ↔ worktree is the view with stage checkboxes: add the index.
+        if mode == DiffMode::Head && !texts.binary && !texts.too_large {
+            if let Blob::Data(d) = self.read_side(&Side::Index(path))? {
+                texts.lossy |= is_lossy(&d);
+                texts.index = Some(String::from_utf8_lossy(&d).into_owned());
+            }
+        }
+        Ok(texts)
+    }
+
+    /// Set the staged content of `path` to `content` (blocks or lines staged
+    /// from the diff editor). The content is in working-tree form; git's
+    /// clean filters (e.g. CRLF conversion) apply as for `git add`.
+    pub fn stage_content(&self, path: &str, content: &str) -> Result<()> {
+        let full = self.resolve(path)?;
+        let mode = self.index_mode(path, &full)?;
+        let oid = self
+            .cli
+            .run(
+                &self.root,
+                &["hash-object", "-w", "--stdin", &format!("--path={path}")],
+                RunOptions::write().stdin(content.as_bytes().to_vec()),
+            )?
+            .stdout_str()
+            .trim()
+            .to_string();
+        check_oid(&oid)?;
+        self.write(&[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("{mode},{oid},{path}"),
+        ])
+    }
+
+    /// File mode for an index entry: the current entry's, else HEAD's, else
+    /// from the working-tree file.
+    fn index_mode(&self, path: &str, full: &Path) -> Result<String> {
+        for args in [
+            vec!["ls-files", "-s", "--", path],
+            vec!["ls-tree", "HEAD", "--", path],
+        ] {
+            if let Ok(out) = self.cli.run(&self.root, &args, RunOptions::read()) {
+                if let Some(mode) = out.stdout_str().split_whitespace().next() {
+                    if mode.len() == 6 && mode.bytes().all(|b| b.is_ascii_digit()) {
+                        return Ok(mode.to_string());
+                    }
+                }
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(full).is_ok_and(|m| m.permissions().mode() & 0o111 != 0) {
+                return Ok("100755".into());
+            }
+        }
+        let _ = full;
+        Ok("100644".into())
+    }
+
+    /// Replace a working-tree file's content (discarding blocks from the diff
+    /// editor), but only if it still holds `expected`: never overwrite edits
+    /// made since the diff was loaded.
+    pub fn write_worktree_file(&self, path: &str, content: &str, expected: &str) -> Result<()> {
+        let full = self.resolve(path)?;
+        let current = std::fs::read(&full)?;
+        if current != expected.as_bytes() {
+            return Err(GitError::Invalid(format!(
+                "{path} changed on disk since the diff was loaded; reload and try again"
+            )));
+        }
+        std::fs::write(&full, content)?;
+        Ok(())
     }
 
     /// Both versions of a file in a commit (against `parent`, or nothing for
@@ -427,6 +510,7 @@ impl Repo {
             out.binary = true;
             return Ok(out);
         }
+        out.lossy = a.as_deref().is_some_and(is_lossy) || b.as_deref().is_some_and(is_lossy);
         let text = |d: Option<Vec<u8>>| d.map(|d| String::from_utf8_lossy(&d).into_owned());
         out.old = text(a);
         out.new = text(b);

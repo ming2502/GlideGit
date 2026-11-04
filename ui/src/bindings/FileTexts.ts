@@ -19,4 +19,14 @@ binary: boolean,
 /**
  * Either side is over the size limit; no texts are returned then.
  */
-tooLarge: boolean, };
+tooLarge: boolean, 
+/**
+ * The staged version, for working-copy diffs against HEAD (used to show
+ * which blocks and lines are staged). `None` when not in the index.
+ */
+index: string | null, 
+/**
+ * Some version is not valid UTF-8 or has bare CR line breaks: the texts
+ * are approximate and must not be written back.
+ */
+lossy: boolean, };

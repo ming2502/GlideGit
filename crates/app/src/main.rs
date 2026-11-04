@@ -110,6 +110,8 @@ fn main() {
             commands::commit_file_diff,
             commands::file_texts,
             commands::commit_file_texts,
+            commands::stage_content,
+            commands::write_worktree_file,
             commands::checkout_branch,
             commands::create_branch,
             commands::checkout_detached,

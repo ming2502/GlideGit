@@ -32,6 +32,9 @@ jobs:
       - name: Frontend typecheck & build
         run: pnpm build
 
+      - name: Frontend unit tests
+        run: pnpm test
+
       - name: rustfmt
         run: cargo fmt --all -- --check
 

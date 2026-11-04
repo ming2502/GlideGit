@@ -267,6 +267,32 @@ pub async fn file_texts(
 }
 
 #[tauri::command]
+pub async fn stage_content(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    content: String,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.stage_content(&path, &content)).await?)
+}
+
+#[tauri::command]
+pub async fn write_worktree_file(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    content: String,
+    expected: String,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.write(move |r| r.write_worktree_file(&path, &content, &expected))
+            .await?,
+    )
+}
+
+#[tauri::command]
 pub async fn commit_file_texts(
     state: State<'_, AppState>,
     root: String,

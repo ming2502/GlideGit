@@ -220,6 +220,12 @@ pub struct FileTexts {
     pub binary: bool,
     /// Either side is over the size limit; no texts are returned then.
     pub too_large: bool,
+    /// The staged version, for working-copy diffs against HEAD (used to show
+    /// which blocks and lines are staged). `None` when not in the index.
+    pub index: Option<String>,
+    /// Some version is not valid UTF-8 or has bare CR line breaks: the texts
+    /// are approximate and must not be written back.
+    pub lossy: bool,
 }
 
 /// One parsed `--progress` update, e.g. `Receiving objects: 45% (450/1000), 1.2 MiB | 2 MiB/s`.

@@ -651,3 +651,97 @@ fn file_texts_for_each_side() {
         .file_texts("../escape", None, DiffMode::Head, true)
         .is_err());
 }
+
+fn staged_text(repo: &Repo, path: &str) -> String {
+    repo.cli()
+        .run(
+            repo.root(),
+            &["show", &format!(":{path}")],
+            RunOptions::read(),
+        )
+        .unwrap()
+        .stdout_str()
+        .into_owned()
+}
+
+#[test]
+fn stage_content_and_worktree_writes() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n2\n3\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    write(root, "a.txt", "1\nTWO\n3\nfour\n");
+
+    // The index version comes with HEAD ↔ worktree texts.
+    let t = repo
+        .file_texts("a.txt", None, DiffMode::Head, false)
+        .unwrap();
+    assert_eq!(t.index.as_deref(), Some("1\n2\n3\n"));
+    assert!(!t.lossy);
+
+    // Stage only the first block.
+    repo.stage_content("a.txt", "1\nTWO\n3\n").unwrap();
+    assert_eq!(staged_text(&repo, "a.txt"), "1\nTWO\n3\n");
+    let st = repo.status().unwrap().1;
+    let a = find(&st, "a.txt");
+    assert_eq!(
+        (a.staged, a.unstaged),
+        (Some(ChangeKind::Modified), Some(ChangeKind::Modified))
+    );
+    let t = repo
+        .file_texts("a.txt", None, DiffMode::Head, false)
+        .unwrap();
+    assert_eq!(t.index.as_deref(), Some("1\nTWO\n3\n"));
+
+    // A new file can be staged partially too.
+    write(root, "new.txt", "keep\ndrop\n");
+    repo.stage_content("new.txt", "keep\n").unwrap();
+    assert_eq!(staged_text(&repo, "new.txt"), "keep\n");
+
+    // Discarding writes the worktree only if it is unchanged since loading.
+    let err = repo
+        .write_worktree_file("a.txt", "1\n2\n3\n", "stale content")
+        .unwrap_err();
+    assert!(matches!(err, GitError::Invalid(_)), "{err:?}");
+    repo.write_worktree_file("a.txt", "1\nTWO\n3\n", "1\nTWO\n3\nfour\n")
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("a.txt")).unwrap(),
+        "1\nTWO\n3\n"
+    );
+    assert!(repo.write_worktree_file("../x", "", "").is_err());
+
+    // Bare CR and invalid UTF-8 are flagged.
+    fs::write(root.join("cr.txt"), b"a\rb\n").unwrap();
+    assert!(
+        repo.file_texts("cr.txt", None, DiffMode::Head, true)
+            .unwrap()
+            .lossy
+    );
+    fs::write(root.join("crlf.txt"), b"a\r\nb\r\n").unwrap();
+    assert!(
+        !repo
+            .file_texts("crlf.txt", None, DiffMode::Head, true)
+            .unwrap()
+            .lossy
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_content_keeps_executable_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "run.sh", "#!/bin/sh\necho 1\n");
+    fs::set_permissions(root.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    repo.stage_content("run.sh", "#!/bin/sh\n").unwrap();
+    let ls = repo
+        .cli()
+        .run(root, &["ls-files", "-s", "run.sh"], RunOptions::read())
+        .unwrap()
+        .stdout_str()
+        .into_owned();
+    assert!(ls.starts_with("100755"), "{ls}");
+}

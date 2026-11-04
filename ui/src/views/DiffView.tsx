@@ -1,7 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useActions } from "../actions/registry";
 import type { FileTexts } from "../bindings/FileTexts";
-import type { CodeDiffHandle, DiffLayout, DiffStats } from "../components/CodeDiff";
+import type { CodeDiffHandle, DiffLayout, DiffStats, Staging } from "../components/CodeDiff";
+import { api } from "../api";
 
 // CodeMirror is large; load it on first use so the app shell starts fast.
 const CodeDiff = lazy(() => import("../components/CodeDiff").then((m) => ({ default: m.CodeDiff })));
@@ -13,6 +14,38 @@ export function DiffView() {
   const diff = useRepo((s) => s.diff);
   const loading = useRepo((s) => s.diffLoading);
   const selectedPath = useRepo((s) => s.selectedPath);
+  const change = useRepo((s) => s.snapshot?.changes.find((c) => c.path === s.selectedPath));
+  const runTask = useRepo((s) => s.runTask);
+  const ask = useRepo((s) => s.ask);
+
+  // Block/line staging: not for conflicts, deletions, or texts that would
+  // not survive a round trip.
+  const path = selectedPath;
+  const staging: Staging | undefined =
+    path && diff && diff.path === path && change && !change.conflicted && diff.new != null && !diff.lossy
+      ? {
+          index: diff.index,
+          onStage: (content) =>
+            void runTask("暂存选中的修改", (r) =>
+              // Unstaging every block of a new file takes it out of the index.
+              diff.old == null && content === "" ? api.unstage(r, [path]) : api.stageContent(r, path, content),
+            ),
+          onDiscard: async (content, index) => {
+            const ok = await ask({
+              title: "丢弃这块修改？",
+              message: `${path} 中的这部分改动将还原为 HEAD 的内容，无法撤销。`,
+              confirmLabel: "丢弃",
+              danger: true,
+            });
+            if (!ok) return;
+            const current = diff.new!;
+            void runTask("丢弃修改", async (r) => {
+              if (index != null) await api.stageContent(r, path, index);
+              await api.writeWorktreeFile(r, path, content, current);
+            });
+          },
+        }
+      : undefined;
 
   if (!selectedPath) {
     return (
@@ -22,7 +55,7 @@ export function DiffView() {
       </div>
     );
   }
-  return <TextsDiff path={selectedPath} texts={diff} loading={loading} label="HEAD ↔ 工作区" />;
+  return <TextsDiff path={selectedPath} texts={diff} loading={loading} label="HEAD ↔ 工作区" staging={staging} />;
 }
 
 /** Both versions of a file in the diff editor, with a header (name, line
@@ -33,19 +66,26 @@ export function TextsDiff({
   texts,
   loading,
   label,
+  staging,
 }: {
   path: string;
   texts: FileTexts | null;
   loading: boolean;
   /** What is compared, shown on the right of the header. */
   label: string;
+  /** Block/line staging (working-copy diffs only). */
+  staging?: Staging;
 }) {
   const [layout, setLayout] = useState<DiffLayout>(() => load<DiffLayout>("diffLayout", "split"));
   useEffect(() => save("diffLayout", layout), [layout]);
-  const [stats, setStats] = useState<DiffStats | null>(null);
+  // Counts belong to one file content: a new object whenever it changes. A
+  // new index (after staging) keeps the editor, the content and the counts.
+  const doc = useMemo(() => ({}), [path, texts?.old, texts?.new]);
+  const [counted, setCounted] = useState<{ doc: object; s: DiffStats } | null>(null);
+  const stats = counted?.doc === doc ? counted.s : null;
+  const setStats = useCallback((s: DiffStats) => setCounted({ doc, s }), [doc]);
   const nav = useRef<CodeDiffHandle | null>(null);
   const setHandle = useCallback((h: CodeDiffHandle | null) => (nav.current = h), []);
-  useEffect(() => setStats(null), [texts]);
 
   useActions([
     { id: "diff.next", title: "Next Change", keys: ["f7"], run: () => nav.current?.go(1) },
@@ -71,6 +111,7 @@ export function TextsDiff({
         newText={cur ?? ""}
         layout={layout}
         onStats={setStats}
+        staging={staging}
         handle={setHandle}
       />
       </Suspense>

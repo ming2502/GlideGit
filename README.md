@@ -26,6 +26,7 @@ pnpm install
 pnpm tauri dev        # 启动桌面应用
 pnpm dev              # 仅前端，在浏览器中用 mock 数据预览 UI
 cargo test --workspace
+pnpm test             # 前端单元测试（vitest）
 pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
 cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log 索引基准
 ```

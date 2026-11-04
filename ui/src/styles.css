@@ -746,6 +746,73 @@ input {
 .code-diff-unified .cm-changedLineGutter {
   background: var(--k-added);
 }
+/* Stage gutters: block checkboxes and per-line toggles. */
+.code-diff .cm-stage-boxes .cm-gutterElement,
+.code-diff .cm-stage-dots .cm-gutterElement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.code-diff .cm-stage-boxes .cm-gutterElement {
+  width: 18px;
+}
+.code-diff .cm-stage-dots .cm-gutterElement {
+  width: 12px;
+}
+.stage-box {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--muted);
+  border-radius: 3px;
+  background: var(--bg);
+  cursor: pointer;
+  position: relative;
+}
+.stage-box:hover {
+  border-color: var(--accent);
+}
+.stage-box.on,
+.stage-box.partial {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.stage-box.on::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0px;
+  width: 3px;
+  height: 6px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.stage-box.partial::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 4px;
+  height: 1.5px;
+  background: #fff;
+}
+.stage-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  cursor: pointer;
+  opacity: 0.6;
+}
+.stage-dot:hover {
+  border-color: var(--accent);
+  opacity: 1;
+}
+.stage-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
 .code-diff .cm-collapsedLines {
   padding: 2px 12px;
   background: var(--panel);
