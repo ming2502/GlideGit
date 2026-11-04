@@ -270,6 +270,87 @@ pub fn parse_log(text: &str) -> Vec<CommitSummary> {
         .collect()
 }
 
+/// `git log -1` format for [`CommitDetails`] (files are filled in separately).
+pub const DETAILS_FORMAT: &str =
+    "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B";
+
+pub fn parse_details(text: &str) -> Option<CommitDetails> {
+    let f: Vec<&str> = text.splitn(9, '\0').collect();
+    if f.len() < 9 {
+        return None;
+    }
+    Some(CommitDetails {
+        oid: f[0].trim().to_string(),
+        parents: f[1].split_whitespace().map(str::to_string).collect(),
+        author_name: f[2].to_string(),
+        author_email: f[3].to_string(),
+        author_time: f[4].parse().unwrap_or(0),
+        committer_name: f[5].to_string(),
+        committer_email: f[6].to_string(),
+        committer_time: f[7].parse().unwrap_or(0),
+        message: f[8].trim_end().to_string(),
+        files: Vec::new(),
+    })
+}
+
+/// Parse `git diff-tree -r -z -M --raw --numstat`: raw records
+/// (`:old new sha sha STATUS\0path\0`, two paths for renames/copies)
+/// followed by numstat records (`added\tdeleted\tpath\0`, or
+/// `added\tdeleted\t\0old\0new\0` for renames; `-` for binary).
+pub fn parse_diff_tree(out: &[u8]) -> Vec<CommitFile> {
+    let text = String::from_utf8_lossy(out);
+    let tok: Vec<&str> = text.split('\0').collect();
+    let mut files: Vec<CommitFile> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut i = 0;
+    while i < tok.len() {
+        let t = tok[i];
+        if t.is_empty() {
+            i += 1;
+        } else if let Some(raw) = t.strip_prefix(':') {
+            let status = raw.rsplit(' ').next().unwrap_or("");
+            let code = status.chars().next().unwrap_or('M');
+            let kind = change_kind(code).unwrap_or(ChangeKind::Modified);
+            let (path, orig) = if matches!(code, 'R' | 'C') {
+                let r = (tok.get(i + 2), tok.get(i + 1));
+                i += 3;
+                (r.0.copied(), r.1.map(|s| s.to_string()))
+            } else {
+                let p = tok.get(i + 1).copied();
+                i += 2;
+                (p, None)
+            };
+            if let Some(p) = path {
+                index.insert(p.to_string(), files.len());
+                files.push(CommitFile {
+                    path: p.to_string(),
+                    orig_path: orig,
+                    kind,
+                    added: None,
+                    deleted: None,
+                });
+            }
+        } else {
+            let mut parts = t.splitn(3, '\t');
+            let (a, d, p) = (parts.next(), parts.next(), parts.next().unwrap_or(""));
+            let path = if p.is_empty() {
+                // Rename: old and new path follow as separate tokens.
+                let new = tok.get(i + 2).copied();
+                i += 3;
+                new
+            } else {
+                i += 1;
+                Some(p)
+            };
+            if let Some(f) = path.and_then(|p| index.get(p)).map(|&k| &mut files[k]) {
+                f.added = a.and_then(|x| x.parse().ok());
+                f.deleted = d.and_then(|x| x.parse().ok());
+            }
+        }
+    }
+    files
+}
+
 // ---------------------------------------------------------------------------
 // unified diff
 // ---------------------------------------------------------------------------
@@ -458,6 +539,33 @@ pub fn synthesize_added(path: &str, content: &[u8], max_lines: usize) -> FileDif
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_tree_raw_and_numstat() {
+        let out = b":100644 100644 aaa bbb M\x00src/a.rs\x00:000000 100644 000 ccc A\x00new.txt\x00:100644 100644 ddd eee R087\x00old/name.rs\x00new/name.rs\x00:100644 100644 fff 000 M\x00logo.png\x003\t1\tsrc/a.rs\x005\t0\tnew.txt\x002\t2\t\x00old/name.rs\x00new/name.rs\x00-\t-\tlogo.png\x00";
+        let f = parse_diff_tree(out);
+        assert_eq!(f.len(), 4);
+        assert_eq!(
+            (f[0].path.as_str(), f[0].kind, f[0].added, f[0].deleted),
+            ("src/a.rs", ChangeKind::Modified, Some(3), Some(1))
+        );
+        assert_eq!((f[1].kind, f[1].added), (ChangeKind::Added, Some(5)));
+        assert_eq!(f[2].path, "new/name.rs");
+        assert_eq!(f[2].orig_path.as_deref(), Some("old/name.rs"));
+        assert_eq!((f[2].kind, f[2].added), (ChangeKind::Renamed, Some(2)));
+        assert_eq!((f[3].added, f[3].deleted), (None, None));
+    }
+
+    #[test]
+    fn details_message() {
+        let d = parse_details(
+            "abc\x00p1 p2\x00Ann\x00a@x\x00100\x00Bob\x00b@x\x00200\x00Subject\n\nBody line\n\n",
+        )
+        .unwrap();
+        assert_eq!(d.parents, vec!["p1", "p2"]);
+        assert_eq!((d.author_time, d.committer_time), (100, 200));
+        assert_eq!(d.message, "Subject\n\nBody line");
+    }
 
     #[test]
     fn progress_lines() {

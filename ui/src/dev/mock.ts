@@ -271,6 +271,35 @@ async function fakeRemote(taskId: number, phases: string[]): Promise<null> {
   return null;
 }
 
+const MOCK_PATHS = [
+  "crates/log-index/src/lib.rs",
+  "crates/log-index/src/graph.rs",
+  "crates/core/src/session.rs",
+  "crates/app/src/commands.rs",
+  "ui/src/views/LogView.tsx",
+  "ui/src/views/LogGraph.tsx",
+  "ui/src/styles.css",
+  "docs/DESIGN.md",
+  "README.md",
+  "assets/logo.png",
+];
+/** A few changed files per commit, chosen from the row number. */
+function mockFiles(i: number) {
+  const n = 1 + (i % 6);
+  return Array.from({ length: n }, (_, k) => {
+    const path = MOCK_PATHS[(i * 7 + k * 3) % MOCK_PATHS.length];
+    const kind = k === 0 && i % 5 === 0 ? "added" : k === 1 && i % 7 === 0 ? "renamed" : k === 2 && i % 4 === 0 ? "deleted" : "modified";
+    const binary = path.endsWith(".png");
+    return {
+      path,
+      origPath: kind === "renamed" ? path.replace(/\/([^/]+)$/, "/old_$1") : null,
+      kind,
+      added: binary ? null : kind === "deleted" ? 0 : 3 + ((i + k) % 40),
+      deleted: binary ? null : kind === "added" ? 0 : (i * k) % 17,
+    };
+  }).filter((f, k, all) => all.findIndex((x) => x.path === f.path) === k);
+}
+
 /** Rows matching a filter (cached per filter). Branch filters keep everything. */
 const matchCache = new Map<string, number[]>();
 function mockMatches(f: LogFilter): number[] {
@@ -370,6 +399,28 @@ export function installMock(): void {
       case "log_status":
         startIndexing(a.root as string);
         return logStatus(a.root as string);
+      case "commit_details": {
+        const i = parseInt(String(a.oid).slice(8), 16) || 0;
+        const c = mockCommit(i);
+        const files = mockFiles(i);
+        return {
+          oid: c.oid,
+          parents: c.parents,
+          authorName: c.authorName,
+          authorEmail: c.authorEmail,
+          authorTime: c.authorTime,
+          committerName: i % 4 === 0 ? "GitHub" : c.authorName,
+          committerEmail: i % 4 === 0 ? "noreply@github.com" : c.authorEmail,
+          committerTime: c.authorTime + (i % 4 === 0 ? 7200 : 0),
+          message:
+            i % 3 === 0
+              ? `${c.subject}\n\nKeep the log index in sync with refs after every refresh.\nIncremental updates prepend new commits and drop unreachable ones.\n\nCloses #${1200 + (i % 300)}`
+              : c.subject,
+          files,
+        };
+      }
+      case "commit_file_diff":
+        return diffFor(a.path as string);
       case "log_authors": {
         const q = String(a.query ?? "").toLowerCase();
         return authors

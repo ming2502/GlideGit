@@ -173,6 +173,39 @@ pub struct FileDiff {
     pub hunks: Vec<DiffHunk>,
 }
 
+/// A file changed by a commit (compared with its first parent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitFile {
+    pub path: String,
+    /// Old path of a rename or copy.
+    pub orig_path: Option<String>,
+    pub kind: ChangeKind,
+    /// Lines added / deleted; `None` for binary files.
+    pub added: Option<u32>,
+    pub deleted: Option<u32>,
+}
+
+/// Everything the Log shows about one commit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitDetails {
+    pub oid: String,
+    pub parents: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    pub author_time: i64,
+    pub committer_name: String,
+    pub committer_email: String,
+    pub committer_time: i64,
+    /// Full message, trailing newlines removed.
+    pub message: String,
+    /// Changes against the first parent (everything, for a root commit).
+    pub files: Vec<CommitFile>,
+}
+
 /// One parsed `--progress` update, e.g. `Receiving objects: 45% (450/1000), 1.2 MiB | 2 MiB/s`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -106,6 +106,8 @@ fn main() {
             commands::log_page,
             commands::log_row_of,
             commands::log_authors,
+            commands::commit_details,
+            commands::commit_file_diff,
             commands::checkout_branch,
             commands::create_branch,
             commands::delete_branch,

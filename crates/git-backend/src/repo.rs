@@ -27,6 +27,15 @@ pub enum PullMode {
     FastForwardOnly,
 }
 
+/// Commit ids reach git as arguments: accept hex only, never an option.
+fn check_oid(oid: &str) -> Result<()> {
+    if (4..=64).contains(&oid.len()) && oid.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(GitError::Invalid(format!("not a commit id: {oid:?}")))
+    }
+}
+
 impl Repo {
     /// Open the repository containing `path` (any sub-directory works).
     pub fn open(cli: GitCli, path: impl AsRef<Path>) -> Result<Self> {
@@ -229,6 +238,69 @@ impl Repo {
             DiffMode::Head => args.push("HEAD"),
         }
         args.extend(["--", path]);
+        let text = self.read(&args)?;
+        Ok(parse::parse_unified_diff(&text, path, MAX_DIFF_LINES))
+    }
+
+    /// Message, people, dates and changed files of a commit. A merge is
+    /// compared with its first parent, a root commit with the empty tree.
+    pub fn commit_details(&self, oid: &str) -> Result<CommitDetails> {
+        check_oid(oid)?;
+        let text = self.read(&["log", "-1", parse::DETAILS_FORMAT, oid, "--"])?;
+        let mut d = parse::parse_details(&text)
+            .ok_or_else(|| GitError::Invalid(format!("no such commit: {oid}")))?;
+        let mut args = vec![
+            "diff-tree",
+            "-r",
+            "-z",
+            "-M",
+            "--raw",
+            "--numstat",
+            "--no-commit-id",
+        ];
+        let parent = d.parents.first().cloned();
+        match &parent {
+            Some(p) => args.push(p),
+            None => args.push("--root"),
+        }
+        args.push(oid);
+        let out = self.cli.run(&self.root, &args, RunOptions::read())?;
+        d.files = parse::parse_diff_tree(&out.stdout);
+        Ok(d)
+    }
+
+    /// Diff of one file in a commit against `parent` (its first parent, or
+    /// `None` for a root commit). `orig_path` is the old name of a rename.
+    pub fn commit_file_diff(
+        &self,
+        oid: &str,
+        parent: Option<&str>,
+        path: &str,
+        orig_path: Option<&str>,
+    ) -> Result<FileDiff> {
+        check_oid(oid)?;
+        let mut args = vec![
+            "diff-tree",
+            "-p",
+            "-M",
+            "--no-color",
+            "--no-ext-diff",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "-U3",
+        ];
+        match parent {
+            Some(p) => {
+                check_oid(p)?;
+                args.push(p);
+            }
+            None => args.push("--root"),
+        }
+        args.extend([oid, "--", path]);
+        // Both names, so rename detection can pair them.
+        if let Some(o) = orig_path {
+            args.push(o);
+        }
         let text = self.read(&args)?;
         Ok(parse::parse_unified_diff(&text, path, MAX_DIFF_LINES))
     }

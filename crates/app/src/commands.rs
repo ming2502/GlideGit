@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
-use glide_git_backend::{DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
+use glide_git_backend::{CommitDetails, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -220,6 +220,32 @@ pub async fn log_row_of(
 ) -> CmdResult<Option<u32>> {
     let s = session(&state, &root).await?;
     Ok(s.log_row_of(oid, filter.unwrap_or_default()).await?)
+}
+
+#[tauri::command]
+pub async fn commit_details(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+) -> CmdResult<CommitDetails> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.commit_details(&oid)).await?)
+}
+
+#[tauri::command]
+pub async fn commit_file_diff(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+    parent: Option<String>,
+    path: String,
+    orig_path: Option<String>,
+) -> CmdResult<FileDiff> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.read(move |r| r.commit_file_diff(&oid, parent.as_deref(), &path, orig_path.as_deref()))
+            .await?,
+    )
 }
 
 #[tauri::command]

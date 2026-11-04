@@ -7,6 +7,8 @@ import type { LogStatus } from "../bindings/LogStatus";
 import { VirtualRows } from "../components/VirtualList";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
+import { load, save } from "../lib/storage";
+import { CommitDetailsPane } from "./CommitDetails";
 import { EMPTY_FILTER, LogFilterBar, filterKey } from "./LogFilterBar";
 import { LogGraph, graphPx, graphWidth } from "./LogGraph";
 
@@ -201,6 +203,41 @@ export function LogView() {
 
   const indexing = status != null && !status.complete;
 
+  // Jump to a commit (e.g. a parent link); it may be hidden by the filter.
+  const jumpTo = (oid: string) => {
+    void api
+      .logRowOf(root, oid, key ? filter : null)
+      .then((r) => {
+        if (r == null) {
+          useRepo.getState().toast({ kind: "info", title: "该提交不在当前列表中", detail: "可能被过滤条件隐藏" });
+          return;
+        }
+        setSelected(r);
+        selectedOid.current = oid;
+      })
+      .catch(() => {});
+  };
+
+  // Height of the details pane, dragged with the splitter above it.
+  const [detailsH, setDetailsH] = useState(() => load("logDetailsHeight", 300));
+  useEffect(() => save("logDetailsHeight", detailsH), [detailsH]);
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = detailsH;
+    const view = (e.currentTarget as HTMLElement).parentElement!;
+    const max = Math.max(160, view.clientHeight - 160);
+    const onMove = (ev: MouseEvent) => setDetailsH(Math.max(140, Math.min(max, startH + startY - ev.clientY)));
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("resizing-v");
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.classList.add("resizing-v");
+  };
+
   return (
     <div className="log-view">
       <LogFilterBar filter={filter} onChange={setFilter} />
@@ -278,18 +315,13 @@ export function LogView() {
           }}
         />
       )}
-      {cur && (
-        <div className="commit-details">
-          <div className="mono">{cur.oid}</div>
-          <div>
-            {cur.authorName} &lt;{cur.authorEmail}&gt; · {new Date(cur.authorTime * 1000).toLocaleString()}
+      {total > 0 && (
+        <>
+          <div className="log-split" onMouseDown={startResize} title="拖动调整高度" />
+          <div className="log-details" style={{ height: detailsH }}>
+            <CommitDetailsPane oid={cur?.oid ?? null} refs={cur?.refs ?? []} onJump={jumpTo} />
           </div>
-          <div className="muted">
-            {cur.parents.length > 1 ? "Merge commit · " : ""}
-            parents: {cur.parents.map((p) => p.slice(0, 8)).join(", ") || "—"}
-          </div>
-          <div className="details-subject">{cur.subject}</div>
-        </div>
+        </>
       )}
       <div className="log-foot">
         <span>

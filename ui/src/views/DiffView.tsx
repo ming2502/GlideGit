@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { DiffLine } from "../bindings/DiffLine";
+import type { FileDiff } from "../bindings/FileDiff";
 import { VirtualList } from "../components/VirtualList";
 import { splitPath } from "../lib/format";
 import { useRepo } from "../stores/repo";
@@ -13,6 +14,30 @@ export function DiffView() {
   const loading = useRepo((s) => s.diffLoading);
   const selectedPath = useRepo((s) => s.selectedPath);
 
+  if (!selectedPath) {
+    return (
+      <div className="diff-empty">
+        <div>选择一个文件查看差异</div>
+        <div className="muted">↑↓ 切换文件 · 空格 加入/排除提交</div>
+      </div>
+    );
+  }
+  return <DiffBody path={selectedPath} diff={diff} loading={loading} label="HEAD ↔ 工作区" />;
+}
+
+/** A file diff with its header: unified view, line numbers, virtualised. */
+export function DiffBody({
+  path,
+  diff,
+  loading,
+  label,
+}: {
+  path: string;
+  diff: FileDiff | null;
+  loading: boolean;
+  /** What is compared, shown on the right of the header. */
+  label: string;
+}) {
   const rows = useMemo(() => {
     const out: Row[] = [];
     for (const h of diff?.hunks ?? []) {
@@ -22,16 +47,7 @@ export function DiffView() {
     return out;
   }, [diff]);
 
-  if (!selectedPath) {
-    return (
-      <div className="diff-empty">
-        <div>选择一个文件查看差异</div>
-        <div className="muted">↑↓ 切换文件 · 空格 加入/排除提交</div>
-      </div>
-    );
-  }
-
-  const { name, dir } = splitPath(selectedPath);
+  const { name, dir } = splitPath(path);
 
   return (
     <div className="diff-view">
@@ -45,7 +61,7 @@ export function DiffView() {
             <span className="add">+{diff.added}</span> <span className="del">−{diff.deleted}</span>
           </span>
         )}
-        <span className="muted">HEAD ↔ 工作区</span>
+        <span className="muted">{label}</span>
       </div>
       {diff?.binary ? (
         <div className="diff-empty">二进制文件，无法显示文本差异</div>

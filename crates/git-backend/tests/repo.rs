@@ -426,3 +426,56 @@ fn cancel_hung_fetch() {
         started.elapsed()
     );
 }
+
+#[test]
+fn commit_details_and_file_diffs() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "one\ntwo\n");
+    write(root, "img.bin", "\x00\x01\x02");
+    repo.stage_all().unwrap();
+    let first = repo.commit("Initial\n\nWith a body.", false).unwrap();
+
+    let d = repo.commit_details(&first).unwrap();
+    assert_eq!(d.message, "Initial\n\nWith a body.");
+    assert!(d.parents.is_empty());
+    assert_eq!(d.author_name, "Test");
+    let paths: Vec<_> = d
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.kind, f.added))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            ("a.txt", ChangeKind::Added, Some(2)),
+            ("img.bin", ChangeKind::Added, None)
+        ]
+    );
+    let diff = repo.commit_file_diff(&first, None, "a.txt", None).unwrap();
+    assert_eq!(diff.added, 2);
+
+    // Rename with an edit, plus a modification.
+    fs::rename(root.join("a.txt"), root.join("b.txt")).unwrap();
+    write(root, "b.txt", "one\ntwo\nthree\n");
+    write(root, "img.bin", "\x00\x01\x03");
+    repo.stage_all().unwrap();
+    let second = repo.commit("Rename", false).unwrap();
+    let d = repo.commit_details(&second).unwrap();
+    assert_eq!(d.parents, vec![first.clone()]);
+    let b = d.files.iter().find(|f| f.path == "b.txt").unwrap();
+    assert_eq!(b.kind, ChangeKind::Renamed);
+    assert_eq!(b.orig_path.as_deref(), Some("a.txt"));
+    assert_eq!((b.added, b.deleted), (Some(1), Some(0)));
+    let diff = repo
+        .commit_file_diff(&second, Some(&first), "b.txt", Some("a.txt"))
+        .unwrap();
+    assert_eq!((diff.added, diff.deleted), (1, 0));
+    assert_eq!(diff.hunks[0].lines.last().unwrap().text, "three");
+
+    assert!(matches!(
+        repo.commit_details("--all"),
+        Err(GitError::Invalid(_))
+    ));
+    assert!(repo.commit_details("deadbeef").is_err());
+}

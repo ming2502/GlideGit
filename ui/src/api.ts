@@ -5,6 +5,7 @@ import type { AskRequest } from "./bindings/AskRequest";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileDiff } from "./bindings/FileDiff";
 import type { AuthorCount } from "./bindings/AuthorCount";
+import type { CommitDetails } from "./bindings/CommitDetails";
 import type { LogFilter } from "./bindings/LogFilter";
 import type { LogPage } from "./bindings/LogPage";
 import type { LogStatus } from "./bindings/LogStatus";
@@ -55,6 +56,9 @@ export const api = {
   logRowOf: (root: string, oid: string, filter: LogFilter | null) =>
     invoke<number | null>("log_row_of", { root, oid, filter }),
   logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
+  commitDetails: (root: string, oid: string) => invoke<CommitDetails>("commit_details", { root, oid }),
+  commitFileDiff: (root: string, oid: string, parent: string | null, path: string, origPath: string | null) =>
+    invoke<FileDiff>("commit_file_diff", { root, oid, parent, path, origPath }),
   checkoutBranch: (root: string, name: string, remote: boolean) =>
     invoke<void>("checkout_branch", { root, name, remote }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>
