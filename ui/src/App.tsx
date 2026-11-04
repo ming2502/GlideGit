@@ -9,6 +9,7 @@ import { pickRepository, StatusBar, Toolbar } from "./views/Chrome";
 import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
+import { AskpassDialog } from "./views/AskpassDialog";
 import { PushDialog } from "./views/PushDialog";
 import { Welcome } from "./views/Welcome";
 
@@ -99,6 +100,7 @@ export function App() {
       <BranchPopup />
       <PushDialog />
       <ConfirmDialog />
+      <AskpassDialog />
       <Toasts />
     </div>
   );

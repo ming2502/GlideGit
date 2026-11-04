@@ -1,6 +1,7 @@
 // Typed wrappers over Tauri IPC. Domain types are generated from Rust (ui/src/bindings).
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { AskRequest } from "./bindings/AskRequest";
 import type { CommitSummary } from "./bindings/CommitSummary";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileDiff } from "./bindings/FileDiff";
@@ -58,7 +59,16 @@ export const api = {
     invoke<void>("push", { root, forceWithLease, taskId }),
   pushPreview: (root: string) => invoke<PushPreview>("push_preview", { root }),
   cancelTask: (taskId: number) => invoke<boolean>("cancel_task", { taskId }),
+  askpassRespond: (id: number, answer: string | null) => invoke<boolean>("askpass_respond", { id, answer }),
 };
+
+export function onAskpass(cb: (req: AskRequest) => void): Promise<UnlistenFn> {
+  return listen<AskRequest>("askpass-request", (e) => cb(e.payload));
+}
+
+export function onAskpassDismiss(cb: (id: number) => void): Promise<UnlistenFn> {
+  return listen<{ id: number }>("askpass-dismiss", (e) => cb(e.payload.id));
+}
 
 export function onTaskProgress(cb: (taskId: number, progress: Progress) => void): Promise<UnlistenFn> {
   return listen<{ taskId: number; progress: Progress }>("task-progress", (e) =>

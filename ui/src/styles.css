@@ -1063,3 +1063,50 @@ input {
   color: var(--danger);
   white-space: pre-wrap;
 }
+
+/* --------------------------------------------------------- askpass dialog */
+.ask-dialog {
+  width: 460px;
+}
+.ask-dialog h3 {
+  margin-bottom: 12px;
+}
+.ask-target {
+  margin-bottom: 8px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.ask-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ask-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  outline: none;
+}
+.ask-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ask-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.ask-prompt {
+  margin: 0 0 8px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.ask-dialog form .dialog-actions {
+  margin-top: 16px;
+}

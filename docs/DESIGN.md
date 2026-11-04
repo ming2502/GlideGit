@@ -210,7 +210,7 @@ interface LogRow {
 
 - **Windows**：长路径（`core.longpaths`）、CRLF / `autocrlf`、大小写不敏感、杀毒软件拖慢进程启动（减少 git 调用次数）、OpenSSH vs Pageant、Git Credential Manager；创建子进程使用 `CREATE_NO_WINDOW` 避免闪黑框。
 - **macOS**：公证、Keychain、Universal 二进制（arm64 + x86_64）、文件名 Unicode NFD。
-- **认证**：通过 `GIT_ASKPASS` / `SSH_ASKPASS` 回调到应用弹窗，不自己存凭据。
+- **认证**：通过 `GIT_ASKPASS` / `SSH_ASKPASS` 回调到应用弹窗，不自己存凭据。实现方式：把 GlideGit 自身的可执行文件设为 askpass 程序。git 或 ssh 提问时会以「提示语」为参数启动它；进程检测到 `GLIDEGIT_ASKPASS_ADDR` 后进入客户端模式，连接应用内监听在 127.0.0.1 随机端口上的服务，出示每次启动随机生成的令牌，等待用户在弹窗中回答，然后把答案打印给 git。设置了 `SSH_ASKPASS_REQUIRE=force`，避免 ssh 在终端上提问而卡住。git 仍会先询问已配置的凭据助手（macOS 钥匙串、Git Credential Manager），验证成功后由助手保存密码。
 - **发布**：Tauri updater；Windows MSI/NSIS + 代码签名。
 - **子进程环境**：强制 `LC_ALL=C`（稳定解析）、`GIT_TERMINAL_PROMPT=0`（禁止阻塞在终端提示）、`GIT_OPTIONAL_LOCKS=0`（只读命令不抢锁）。
 

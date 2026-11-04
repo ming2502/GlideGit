@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-03）**：M0 已完成（CI 在 macOS 与 Windows 上通过）。M1 只剩 M1-10（认证回调）和 M1-11（多标签页），下一步按顺序做这两项。
+**当前进度（2026-11-03）**：M0 已完成（CI 在 macOS 与 Windows 上通过）。M1 只剩 M1-11（多仓库标签页）。
 
 ## 里程碑总览
 
@@ -38,7 +38,7 @@
 - [x] M1-7 Watcher：notify + 150ms 去抖，过滤 `.git` 噪声，自身写操作期间抑制
 - [x] M1-8 简单 Log（最近 N 个提交，无图）
 - [x] M1-9 Fetch / Pull / Push，带进度事件，支持 `--force-with-lease`；fetch/push 不阻塞本地写操作，取消时连同 ssh 等子进程一起终止（Unix）
-- [ ] M1-10 认证：`GIT_ASKPASS` 回调到 UI，复用 SSH agent
+- [x] M1-10 认证：GlideGit 自身作为 `GIT_ASKPASS` / `SSH_ASKPASS`，通过本机回环端口和随机令牌，把提问转给 UI 弹窗。支持用户名、密码/令牌、SSH 密钥口令、主机指纹确认；仍会先用已配置的凭据助手，SSH agent 照常生效。*SSH 场景和 Windows 发布版尚未实机验证*
 - [ ] M1-11 最近仓库持久化与多仓库标签页 — *最近仓库已完成；多标签页未做*
 
 **前端**

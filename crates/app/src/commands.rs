@@ -281,3 +281,9 @@ pub async fn push_preview(state: State<'_, AppState>, root: String) -> CmdResult
 pub fn cancel_task(state: State<'_, AppState>, task_id: u64) -> bool {
     state.tasks.cancel(task_id)
 }
+
+/// Answer a credential prompt (`answer: null` = the user cancelled).
+#[tauri::command]
+pub fn askpass_respond(state: State<'_, AppState>, id: u64, answer: Option<String>) -> bool {
+    state.askpass.respond(id, answer)
+}

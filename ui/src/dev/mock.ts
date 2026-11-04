@@ -107,6 +107,15 @@ function diffFor(path: string): FileDiff {
 }
 
 const cancelled = new Set<number>();
+const askWaiters = new Map<number, (answer: string | null) => void>();
+let askSeq = 0;
+
+/** Simulate git asking for credentials through askpass. */
+function fakeAsk(kind: string, prompt: string, target: string | null): Promise<string | null> {
+  const id = ++askSeq;
+  void emit("askpass-request", { id, kind, prompt, target });
+  return new Promise((resolve) => askWaiters.set(id, resolve));
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Simulate a network op: emit git-like progress, honour cancellation. */
@@ -132,7 +141,20 @@ export function installMock(): void {
       case "app_info":
         return { version: "0.1.0", gitVersion: "2.55.0 (mock)", platform: "macos" };
       case "fetch":
-        return fakeRemote(a.taskId as number, ["Counting objects", "Receiving objects", "Resolving deltas"]);
+        return (async () => {
+          // Demo: the first fetch walks through the HTTPS login prompts.
+          if (askSeq === 0) {
+            const user = await fakeAsk("username", "Username for 'https://github.com': ", "https://github.com");
+            if (user == null) throw { kind: "gitFailed", message: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+            const pass = await fakeAsk("password", `Password for 'https://${user}@github.com': `, `https://${user}@github.com`);
+            if (pass == null) throw { kind: "gitFailed", message: "fatal: could not read Password" };
+          }
+          return fakeRemote(a.taskId as number, ["Counting objects", "Receiving objects", "Resolving deltas"]);
+        })();
+      case "askpass_respond":
+        askWaiters.get(a.id as number)?.(a.answer as string | null);
+        askWaiters.delete(a.id as number);
+        return true;
       case "pull":
         return fakeRemote(a.taskId as number, ["Receiving objects", "Updating files"]);
       case "push":

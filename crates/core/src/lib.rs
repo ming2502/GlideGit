@@ -1,6 +1,7 @@
 //! GlideGit core: repository sessions, write serialisation, file watching
 //! and snapshot publication. UI-agnostic; the Tauri app is a thin shell on top.
 
+pub mod askpass;
 mod error;
 mod manager;
 mod session;
