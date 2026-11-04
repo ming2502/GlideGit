@@ -745,3 +745,145 @@ fn stage_content_keeps_executable_mode() {
         .into_owned();
     assert!(ls.starts_with("100755"), "{ls}");
 }
+
+#[test]
+fn stash_push_list_apply_pop_drop() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    assert!(repo.stash_list().unwrap().is_empty());
+    assert!(
+        repo.stash_push(&StashOptions::default()).is_err(),
+        "nothing to stash"
+    );
+
+    // Tracked change + untracked file, stashed with a message.
+    write(root, "a.txt", "1\n2\n");
+    write(root, "new.txt", "new\n");
+    repo.stash_push(&StashOptions {
+        message: Some("try parser".into()),
+        include_untracked: true,
+        ..StashOptions::default()
+    })
+    .unwrap();
+    assert!(repo.status().unwrap().1.is_empty());
+    let list = repo.stash_list().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(
+        (
+            list[0].index,
+            list[0].message.as_str(),
+            list[0].branch.as_deref()
+        ),
+        (0, "try parser", Some("main"))
+    );
+
+    // Details: the tracked change and the untracked file.
+    let d = repo.stash_details(&list[0].oid).unwrap();
+    let files: Vec<_> = d.files.iter().map(|f| (f.path.as_str(), f.kind)).collect();
+    assert_eq!(
+        files,
+        [
+            ("a.txt", ChangeKind::Modified),
+            ("new.txt", ChangeKind::Untracked)
+        ]
+    );
+    let t = repo
+        .commit_file_texts(&d.oid, Some(&d.parents[0]), "a.txt", None)
+        .unwrap();
+    assert_eq!(
+        (t.old.as_deref(), t.new.as_deref()),
+        (Some("1\n"), Some("1\n2\n"))
+    );
+    let t = repo
+        .commit_file_texts(&d.parents[2], None, "new.txt", None)
+        .unwrap();
+    assert_eq!(t.new.as_deref(), Some("new\n"));
+
+    // A second stash (tracked only) shifts the first to stash@{1}.
+    write(root, "a.txt", "1\nother\n");
+    repo.stash_push(&StashOptions::default()).unwrap();
+    let list = repo.stash_list().unwrap();
+    assert_eq!(list.len(), 2);
+    let (newest, older) = (list[0].clone(), list[1].clone());
+    assert_eq!(older.message, "try parser");
+
+    // A stale index/oid pair is refused.
+    assert!(repo.stash_drop(0, &older.oid).is_err());
+
+    // Apply keeps the stash; pop removes it.
+    repo.stash_apply(newest.index, &newest.oid, false, false)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("a.txt")).unwrap(),
+        "1\nother\n"
+    );
+    assert_eq!(repo.stash_list().unwrap().len(), 2);
+    repo.rollback(&s(&["a.txt"]), &[]).unwrap();
+    repo.stash_apply(older.index, &older.oid, true, false)
+        .unwrap();
+    assert_eq!(fs::read_to_string(root.join("new.txt")).unwrap(), "new\n");
+    let list = repo.stash_list().unwrap();
+    assert_eq!(list.len(), 1);
+
+    // Drop the rest.
+    repo.stash_drop(list[0].index, &list[0].oid).unwrap();
+    assert!(repo.stash_list().unwrap().is_empty());
+}
+
+#[test]
+fn stash_keep_index_and_restore_index() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n");
+    write(root, "b.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    write(root, "a.txt", "staged\n");
+    repo.stage(&s(&["a.txt"])).unwrap();
+    write(root, "b.txt", "unstaged\n");
+
+    repo.stash_push(&StashOptions {
+        keep_index: true,
+        ..StashOptions::default()
+    })
+    .unwrap();
+    // Staged change stays, unstaged one is stashed.
+    let st = repo.status().unwrap().1;
+    assert_eq!(st.len(), 1);
+    assert_eq!(st[0].path, "a.txt");
+
+    repo.stage_all().unwrap();
+    repo.commit("staged part", false).unwrap();
+    let e = repo.stash_list().unwrap()[0].clone();
+    repo.stash_apply(e.index, &e.oid, true, true).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("b.txt")).unwrap(),
+        "unstaged\n"
+    );
+}
+
+#[test]
+fn stash_selected_paths_literally() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a[1].txt", "1\n");
+    write(root, "a1.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    write(root, "a[1].txt", "2\n");
+    write(root, "a1.txt", "2\n");
+    repo.stash_push(&StashOptions {
+        paths: s(&["a[1].txt"]),
+        ..StashOptions::default()
+    })
+    .unwrap();
+    // Only the literal path was stashed; "a1.txt" (a glob match) was not.
+    let st = repo.status().unwrap().1;
+    assert_eq!(
+        st.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        ["a1.txt"]
+    );
+}

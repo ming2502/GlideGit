@@ -9,6 +9,7 @@ import { pickRepository, StatusBar, Toolbar } from "./views/Chrome";
 import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
+import { StashDialog, StashView } from "./views/StashView";
 import { AskpassDialog } from "./views/AskpassDialog";
 import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
@@ -87,6 +88,14 @@ export function App() {
     },
     { id: "view.changes", title: "Commit", keys: ["mod+0"], run: () => useRepo.getState().setView("changes") },
     { id: "view.log", title: "Log", keys: ["mod+9"], run: () => useRepo.getState().setView("log") },
+    { id: "view.stash", title: "Stash", keys: ["mod+8"], run: () => useRepo.getState().setView("stash") },
+    {
+      id: "git.stash",
+      title: "Stash Changes…",
+      keys: ["mod+shift+s"],
+      enabled: () => !!useRepo.getState().snapshot?.changes.length,
+      run: () => useRepo.getState().setStashDialog(true),
+    },
     {
       id: "git.fetch",
       title: "Fetch",
@@ -121,7 +130,7 @@ export function App() {
           <OperationBanner />
           {/* Keyed by repo: per-repo view state (commit draft, scroll) resets on tab switch. */}
           <main className="main" key={root}>
-            {view === "changes" ? <ChangesLayout /> : <LogView />}
+            {view === "changes" ? <ChangesLayout /> : view === "log" ? <LogView /> : <StashView />}
           </main>
         </>
       ) : restored ? (
@@ -132,6 +141,7 @@ export function App() {
       <StatusBar gitVersion={info?.gitVersion ?? ""} />
       <BranchPopup />
       <PushDialog />
+      <StashDialog />
       <ConfirmDialog />
       <AskpassDialog />
       <Toasts />

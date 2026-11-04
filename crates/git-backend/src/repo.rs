@@ -826,6 +826,132 @@ impl Repo {
         ])
     }
 
+    // ----------------------------------------------------------------- stash
+
+    pub fn stash_list(&self) -> Result<Vec<StashEntry>> {
+        Ok(parse::parse_stash_list(&self.read(&[
+            "stash",
+            "list",
+            parse::STASH_FORMAT,
+        ])?))
+    }
+
+    /// `git stash push`. Fails (and changes nothing) when there is nothing to stash.
+    pub fn stash_push(&self, opts: &StashOptions) -> Result<()> {
+        let (has_head, changes) = (self.has_head(), self.status()?.1);
+        if !has_head {
+            return Err(GitError::Invalid(
+                "cannot stash before the first commit".into(),
+            ));
+        }
+        let relevant = changes
+            .iter()
+            .any(|c| opts.include_untracked || c.unstaged != Some(ChangeKind::Untracked));
+        if !relevant {
+            return Err(GitError::Invalid("no local changes to stash".into()));
+        }
+        let mut args = vec!["stash", "push"];
+        if opts.include_untracked {
+            args.push("--include-untracked");
+        }
+        if opts.keep_index {
+            args.push("--keep-index");
+        }
+        let message = opts
+            .message
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty());
+        let m_arg;
+        if let Some(m) = message {
+            m_arg = format!("--message={m}");
+            args.push(&m_arg);
+        }
+        // git stash relies on magic pathspecs (":/") internally, so literal
+        // pathspecs must be off; user paths are marked literal one by one.
+        let mut input = Vec::new();
+        if !opts.paths.is_empty() {
+            args.extend(["--pathspec-from-file=-", "--pathspec-file-nul"]);
+            for p in &opts.paths {
+                input.extend_from_slice(format!(":(literal){p}").as_bytes());
+                input.push(0);
+            }
+        }
+        let mut run = RunOptions::write().env("GIT_LITERAL_PATHSPECS", "0");
+        if !input.is_empty() {
+            run = run.stdin(input);
+        }
+        self.cli.run(&self.root, &args, run)?;
+        Ok(())
+    }
+
+    /// Run a `git stash` subcommand (needs non-literal pathspecs, see above).
+    fn stash_cmd(&self, args: &[&str]) -> Result<()> {
+        self.cli.run(
+            &self.root,
+            args,
+            RunOptions::write().env("GIT_LITERAL_PATHSPECS", "0"),
+        )?;
+        Ok(())
+    }
+
+    /// Make sure `stash@{index}` still is `oid` (the list may have changed
+    /// since the UI read it), and return the ref.
+    fn stash_ref(&self, index: u32, oid: &str) -> Result<String> {
+        check_oid(oid)?;
+        let r = format!("stash@{{{index}}}");
+        let actual = self
+            .read(&["rev-parse", "--verify", "-q", &r])
+            .unwrap_or_default();
+        if actual.trim() != oid {
+            return Err(GitError::Invalid(
+                "the stash list changed; refresh and try again".into(),
+            ));
+        }
+        Ok(r)
+    }
+
+    /// Apply a stash; with `pop`, drop it afterwards (git keeps it if the
+    /// apply had conflicts). `restore_index` also restores what was staged.
+    pub fn stash_apply(&self, index: u32, oid: &str, pop: bool, restore_index: bool) -> Result<()> {
+        let r = self.stash_ref(index, oid)?;
+        let mut args = vec!["stash", if pop { "pop" } else { "apply" }];
+        if restore_index {
+            args.push("--index");
+        }
+        args.push(&r);
+        self.stash_cmd(&args)
+    }
+
+    pub fn stash_drop(&self, index: u32, oid: &str) -> Result<()> {
+        let r = self.stash_ref(index, oid)?;
+        self.stash_cmd(&["stash", "drop", "-q", &r])
+    }
+
+    /// What a stash contains: changes against the commit it was made on,
+    /// plus untracked files (kind `Untracked`) when it has them.
+    pub fn stash_details(&self, oid: &str) -> Result<CommitDetails> {
+        let mut d = self.commit_details(oid)?;
+        if let Some(untracked) = d.parents.get(2).cloned() {
+            check_oid(&untracked)?;
+            let out = self.cli.run(
+                &self.root,
+                &["ls-tree", "-r", "-z", "--name-only", &untracked],
+                RunOptions::read(),
+            )?;
+            for path in out.stdout_str().split('\0').filter(|p| !p.is_empty()) {
+                d.files.push(CommitFile {
+                    path: path.to_string(),
+                    orig_path: None,
+                    kind: ChangeKind::Untracked,
+                    added: None,
+                    deleted: None,
+                });
+            }
+        }
+        Ok(d)
+    }
+
     pub fn delete_branch(&self, name: &str, force: bool) -> Result<()> {
         self.write(&["branch", if force { "-D" } else { "-d" }, name])
     }

@@ -62,6 +62,8 @@ pub struct RunOptions {
     /// Parse stderr progress lines (`--progress`) and forward them here.
     /// Progress lines are then left out of the captured stderr.
     pub progress: Option<ProgressSink>,
+    /// Extra environment for this command; overrides the defaults.
+    pub env: Vec<(String, String)>,
 }
 
 impl RunOptions {
@@ -88,6 +90,10 @@ impl RunOptions {
     }
     pub fn progress(mut self, sink: ProgressSink) -> Self {
         self.progress = Some(sink);
+        self
+    }
+    pub fn env(mut self, key: &str, value: &str) -> Self {
+        self.env.push((key.to_string(), value.to_string()));
         self
     }
 }
@@ -232,6 +238,9 @@ impl GitCli {
             cmd.env("GIT_OPTIONAL_LOCKS", "0");
         }
         for (k, v) in &self.extra_env {
+            cmd.env(k, v);
+        }
+        for (k, v) in &opts.env {
             cmd.env(k, v);
         }
         #[cfg(windows)]

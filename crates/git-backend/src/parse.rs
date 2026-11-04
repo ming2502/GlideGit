@@ -270,6 +270,44 @@ pub fn parse_log(text: &str) -> Vec<CommitSummary> {
         .collect()
 }
 
+pub const STASH_FORMAT: &str = "--format=%gd%x00%H%x00%gs%x00%ct%x1e";
+
+/// Parse `git stash list` in [`STASH_FORMAT`].
+pub fn parse_stash_list(text: &str) -> Vec<StashEntry> {
+    text.split('\x1e')
+        .map(|r| r.trim_start_matches('\n'))
+        .filter(|r| !r.is_empty())
+        .filter_map(|r| {
+            let f: Vec<&str> = r.split('\0').collect();
+            if f.len() < 4 {
+                return None;
+            }
+            let index = f[0]
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse()
+                .ok()?;
+            // "WIP on main: 1a2b3c subject" or "On main: my message".
+            let subject = f[2];
+            let (branch, message) = match subject
+                .strip_prefix("WIP on ")
+                .or_else(|| subject.strip_prefix("On "))
+                .and_then(|rest| rest.split_once(": "))
+            {
+                Some((b, m)) => (Some(b.to_string()), m.to_string()),
+                None => (None, subject.to_string()),
+            };
+            Some(StashEntry {
+                index,
+                oid: f[1].to_string(),
+                message,
+                branch: branch.filter(|b| b != "(no branch)"),
+                time: f[3].trim().parse().unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
 /// `git log -1` format for [`CommitDetails`] (files are filled in separately).
 pub const DETAILS_FORMAT: &str =
     "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B";
@@ -554,6 +592,22 @@ mod tests {
         assert_eq!(f[2].orig_path.as_deref(), Some("old/name.rs"));
         assert_eq!((f[2].kind, f[2].added), (ChangeKind::Renamed, Some(2)));
         assert_eq!((f[3].added, f[3].deleted), (None, None));
+    }
+
+    #[test]
+    fn stash_list() {
+        let text = "stash@{0}\x00aaa\x00On main: try the parser\x001700000000\x1e\nstash@{1}\x00bbb\x00WIP on feature/x: 1a2b3c Fix bug\x001600000000\x1e\n";
+        let s = parse_stash_list(text);
+        assert_eq!(s.len(), 2);
+        assert_eq!(
+            (s[0].index, s[0].message.as_str(), s[0].branch.as_deref()),
+            (0, "try the parser", Some("main"))
+        );
+        assert_eq!(
+            (s[1].index, s[1].message.as_str(), s[1].branch.as_deref()),
+            (1, "1a2b3c Fix bug", Some("feature/x"))
+        );
+        assert_eq!(s[1].time, 1_600_000_000);
     }
 
     #[test]

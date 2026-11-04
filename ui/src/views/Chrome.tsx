@@ -55,6 +55,9 @@ export function Toolbar() {
         <button className={`tab ${view === "log" ? "on" : ""}`} onClick={() => setView("log")}>
           Log <span className="kbd">{shortcutOf("view.log")}</span>
         </button>
+        <button className={`tab ${view === "stash" ? "on" : ""}`} onClick={() => setView("stash")}>
+          Stash <span className="kbd">{shortcutOf("view.stash")}</span>
+        </button>
       </div>
       <span className="spacer" data-tauri-drag-region />
       <button className="tb-icon" onClick={() => runAction("git.fetch")} title="Fetch">

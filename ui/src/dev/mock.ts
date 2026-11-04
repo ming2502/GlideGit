@@ -246,6 +246,14 @@ function textsFor(path: string) {
   next = worktree.get(path) ?? next;
   return { path, old, new: next, binary: false, tooLarge: false, index: staged.get(path) ?? old, lossy: false };
 }
+/** Demo stash list. */
+let stashSeq = 0;
+const stashes = [
+  { index: 0, oid: mockOid(700_001), message: "try the faster filter path", branch: "feature/log-index", time: now - 3 * 3600 },
+  { index: 1, oid: mockOid(700_002), message: "a1b2c3d WIP on graph colours", branch: "main", time: now - 2 * 86400 },
+  { index: 2, oid: mockOid(700_003), message: "debug logging", branch: null as string | null, time: now - 9 * 86400 },
+];
+
 /** Demo index and working-tree contents changed by block staging / discard. */
 const staged = new Map<string, string>();
 const worktree = new Map<string, string>();
@@ -482,6 +490,48 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "stash_list":
+        return stashes.map((e, index) => ({ ...e, index }));
+      case "stash_push": {
+        const o = a.options as { message: string | null; includeUntracked: boolean };
+        stashes.unshift({
+          index: 0,
+          oid: mockOid(900_000 + stashSeq++),
+          message: o.message ?? "f00dbab WIP: commit panel tweaks",
+          branch: "feature/commit-panel",
+          time: Math.floor(Date.now() / 1000),
+        });
+        changes = changes.filter((c) => o.includeUntracked ? false : c.unstaged === "untracked");
+        return sleep(200).then(() => (publish(), null));
+      }
+      case "stash_apply":
+      case "stash_drop": {
+        const i = stashes.findIndex((e) => e.oid === a.oid);
+        if (i !== a.index) throw { kind: "invalid", message: "the stash list changed; refresh and try again" };
+        if (cmd === "stash_drop" || a.pop) stashes.splice(i, 1);
+        if (cmd === "stash_apply")
+          changes = [{ path: "crates/log-index/src/filter.rs", origPath: null, staged: null, unstaged: "modified", conflicted: false }, ...changes];
+        return sleep(200).then(() => (publish(), null));
+      }
+      case "stash_details": {
+        const s = stashes.find((e) => e.oid === a.oid);
+        return {
+          oid: a.oid,
+          parents: [mockOid(3), mockOid(800_000), mockOid(800_001)],
+          authorName: "Min",
+          authorEmail: "dev@example.com",
+          authorTime: s?.time ?? now,
+          committerName: "Min",
+          committerEmail: "dev@example.com",
+          committerTime: s?.time ?? now,
+          message: `On ${s?.branch ?? "main"}: ${s?.message ?? ""}`,
+          files: [
+            { path: "crates/log-index/src/filter.rs", origPath: null, kind: "modified", added: 12, deleted: 3 },
+            { path: "ui/src/views/LogFilterBar.tsx", origPath: null, kind: "modified", added: 5, deleted: 1 },
+            { path: "notes/todo.md", origPath: null, kind: "untracked", added: null, deleted: null },
+          ],
+        };
+      }
       case "stage_content":
         staged.set(a.path as string, a.content as string);
         return sleep(60).then(() => {

@@ -47,7 +47,26 @@ function groupByDir(files: CommitFile[]): Row[] {
 
 const fmtTime = (t: number) => new Date(t * 1000).toLocaleString();
 
-export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; refs: string[]; onJump: (oid: string) => void }) {
+const defaultTexts = (root: string, d: CommitDetails, f: CommitFile) =>
+  api.commitFileTexts(root, d.oid, d.parents[0] ?? null, f.path, f.origPath);
+
+export function CommitDetailsPane({
+  oid,
+  refs,
+  onJump,
+  load = api.commitDetails,
+  loadTexts = defaultTexts,
+  hideParents,
+}: {
+  oid: string | null;
+  refs: string[];
+  onJump: (oid: string) => void;
+  /** How to read the commit (stashes need their untracked files too). */
+  load?: (root: string, oid: string) => Promise<CommitDetails>;
+  loadTexts?: (root: string, details: CommitDetails, file: CommitFile) => Promise<FileTexts>;
+  /** Don't offer parent links (a stash's parents are internal). */
+  hideParents?: boolean;
+}) {
   const root = useRepo((s) => s.root)!;
   const toast = useRepo((s) => s.toast);
   const [details, setDetails] = useState<CommitDetails | null>(null);
@@ -61,8 +80,7 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
     if (!oid) return;
     let alive = true;
     const t = setTimeout(() => {
-      api
-        .commitDetails(root, oid)
+      load(root, oid)
         .then((d) => {
           if (!alive) return;
           setDetails(d);
@@ -75,7 +93,7 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
       alive = false;
       clearTimeout(t);
     };
-  }, [root, oid]);
+  }, [root, oid, load]);
 
   const current = details && details.oid === oid ? details : null;
   const rows = useMemo(() => groupByDir(current?.files ?? []), [current]);
@@ -88,15 +106,14 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
     }
     let alive = true;
     setDiffLoading(true);
-    api
-      .commitFileTexts(root, current.oid, current.parents[0] ?? null, file.path, file.origPath)
+    loadTexts(root, current, file)
       .then((d) => alive && setDiff(d))
       .catch((e) => alive && setError(errorMessage(e)))
       .finally(() => alive && setDiffLoading(false));
     return () => {
       alive = false;
     };
-  }, [root, current, file]);
+  }, [root, current, file, loadTexts]);
 
   if (!oid) return <div className="cd-empty muted">选择一个提交查看详情</div>;
   if (error && !current) return <div className="cd-empty">{error}</div>;
@@ -154,8 +171,10 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
               <button className="cd-hash mono" title="复制完整 hash" onClick={() => copy(current.oid)}>
                 {current.oid.slice(0, 10)}
               </button>
-              {current.parents.length > 0 && <span className="muted">{current.parents.length > 1 ? "父提交（合并）" : "父提交"}</span>}
-              {current.parents.map((p) => (
+              {!hideParents && current.parents.length > 0 && (
+                <span className="muted">{current.parents.length > 1 ? "父提交（合并）" : "父提交"}</span>
+              )}
+              {(hideParents ? [] : current.parents).map((p) => (
                 <button key={p} className="cd-parent mono" title="在 Log 中定位" onClick={() => onJump(p)}>
                   {p.slice(0, 8)}
                 </button>
@@ -169,7 +188,7 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
           <span className="diff-stats">
             <span className="add">+{added.toLocaleString()}</span> <span className="del">−{deleted.toLocaleString()}</span>
           </span>
-          {current.parents.length > 1 && <span className="muted">与第一个父提交比较</span>}
+          {!hideParents && current.parents.length > 1 && <span className="muted">与第一个父提交比较</span>}
         </div>
         {rows.length === 0 ? (
           <div className="cd-empty muted">没有文件变化</div>
@@ -204,7 +223,9 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
                   <span className={`fname kind-${f.kind}`}>{name}</span>
                   {f.origPath && <span className="fdir">← {f.origPath}</span>}
                   <span className="spacer" />
-                  {f.added == null ? (
+                  {f.kind === "untracked" ? (
+                    <span className="muted">未跟踪</span>
+                  ) : f.added == null ? (
                     <span className="muted">二进制</span>
                   ) : (
                     <span className="diff-stats">

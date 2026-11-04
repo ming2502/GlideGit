@@ -206,6 +206,35 @@ pub struct CommitDetails {
     pub files: Vec<CommitFile>,
 }
 
+/// One entry of `git stash list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StashEntry {
+    /// n in `stash@{n}`.
+    pub index: u32,
+    pub oid: String,
+    /// The message without git's "WIP on" / "On <branch>:" prefix.
+    pub message: String,
+    /// Branch the stash was made on, when git recorded one.
+    pub branch: Option<String>,
+    /// Creation time, unix seconds.
+    pub time: i64,
+}
+
+/// Options for `git stash push`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct StashOptions {
+    pub message: Option<String>,
+    pub include_untracked: bool,
+    /// Leave staged changes in place (they are stashed too).
+    pub keep_index: bool,
+    /// Only these paths; empty = everything.
+    pub paths: Vec<String>,
+}
+
 /// Both versions of a file, for the side-by-side diff editor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

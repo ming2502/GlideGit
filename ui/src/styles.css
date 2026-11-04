@@ -329,6 +329,84 @@ input {
   display: flex;
   flex-direction: column;
 }
+/* ----------------------------------------------------------------- stash */
+.stash-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.stash-side {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-strong);
+  background: var(--panel);
+}
+.stash-side .panel-header {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.stash-side .spacer,
+.stash-actions .spacer {
+  flex: 1;
+}
+.btn-sm {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.stash-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+.stash-row {
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.stash-row:hover:not(.selected) {
+  background: var(--hover);
+}
+.stash-row.selected {
+  background: var(--selection-inactive);
+}
+.stash-list:focus .stash-row.selected {
+  background: var(--selection);
+}
+.stash-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stash-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.stash-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-strong);
+  font-size: 12px;
+}
+.stash-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.stash-view .empty .muted {
+  margin-top: 6px;
+  font-size: 12px;
+}
 .op-banner {
   flex: none;
   display: flex;

@@ -13,6 +13,8 @@ import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 import type { ResetMode } from "./bindings/ResetMode";
+import type { StashEntry } from "./bindings/StashEntry";
+import type { StashOptions } from "./bindings/StashOptions";
 
 export interface AppInfo {
   version: string;
@@ -56,6 +58,12 @@ export const api = {
     invoke<number | null>("log_row_of", { root, oid, filter }),
   logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
   commitDetails: (root: string, oid: string) => invoke<CommitDetails>("commit_details", { root, oid }),
+  stashList: (root: string) => invoke<StashEntry[]>("stash_list", { root }),
+  stashPush: (root: string, options: StashOptions) => invoke<void>("stash_push", { root, options }),
+  stashApply: (root: string, index: number, oid: string, pop: boolean, restoreIndex: boolean) =>
+    invoke<void>("stash_apply", { root, index, oid, pop, restoreIndex }),
+  stashDrop: (root: string, index: number, oid: string) => invoke<void>("stash_drop", { root, index, oid }),
+  stashDetails: (root: string, oid: string) => invoke<CommitDetails>("stash_details", { root, oid }),
   stageContent: (root: string, path: string, content: string) =>
     invoke<void>("stage_content", { root, path, content }),
   writeWorktreeFile: (root: string, path: string, content: string, expected: string) =>

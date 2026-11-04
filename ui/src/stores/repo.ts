@@ -7,7 +7,7 @@ import type { FileTexts } from "../bindings/FileTexts";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 import { load, save } from "../lib/storage";
 
-export type View = "changes" | "log";
+export type View = "changes" | "log" | "stash";
 
 export interface Toast {
   id: number;
@@ -64,6 +64,7 @@ interface RepoState {
   branchPopup: boolean;
   confirm: ConfirmRequest | null;
   pushDialog: boolean;
+  stashDialog: boolean;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -89,6 +90,7 @@ interface RepoState {
   setTaskProgress: (taskId: number, progress: Progress) => void;
   cancelTask: (taskId: number) => void;
   setPushDialog: (open: boolean) => void;
+  setStashDialog: (open: boolean) => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
@@ -129,6 +131,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   branchPopup: false,
   confirm: null,
   pushDialog: false,
+  stashDialog: false,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -316,6 +319,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   },
 
   setPushDialog: (pushDialog) => set({ pushDialog }),
+  setStashDialog: (stashDialog) => set({ stashDialog }),
 
   toast(t) {
     const id = ++seq;

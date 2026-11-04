@@ -41,7 +41,8 @@ cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log
 | 推送 | ⌘⇧K | Ctrl+Shift+K |
 | 拉取（Update Project） | ⌘T | Ctrl+T |
 | 分支弹窗 | ⌘⇧\` / ⌘B | Ctrl+Shift+\` / Ctrl+B |
-| Commit / Log 视图 | ⌘0 / ⌘9 | Ctrl+0 / Ctrl+9 |
+| Commit / Log / Stash 视图 | ⌘0 / ⌘9 / ⌘8 | Ctrl+0 / Ctrl+9 / Ctrl+8 |
+| Stash 修改 | ⌘⇧S | Ctrl+Shift+S |
 | Log 中搜索 | ⌘F | Ctrl+F |
 | 下一处 / 上一处修改（diff） | F7 / ⇧F7 | F7 / Shift+F7 |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |

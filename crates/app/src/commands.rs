@@ -6,6 +6,7 @@ use std::sync::Arc;
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
     CommitDetails, DiffMode, FileDiff, FileTexts, PullMode, PushPreview, RepoSnapshot, ResetMode,
+    StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -264,6 +265,59 @@ pub async fn file_texts(
         s.read(move |r| r.file_texts(&path, orig_path.as_deref(), mode, untracked))
             .await?,
     )
+}
+
+#[tauri::command]
+pub async fn stash_list(state: State<'_, AppState>, root: String) -> CmdResult<Vec<StashEntry>> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(|r| r.stash_list()).await?)
+}
+
+#[tauri::command]
+pub async fn stash_push(
+    state: State<'_, AppState>,
+    root: String,
+    options: StashOptions,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.stash_push(&options)).await?)
+}
+
+#[tauri::command]
+pub async fn stash_apply(
+    state: State<'_, AppState>,
+    root: String,
+    index: u32,
+    oid: String,
+    pop: bool,
+    restore_index: bool,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.write(move |r| r.stash_apply(index, &oid, pop, restore_index))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn stash_drop(
+    state: State<'_, AppState>,
+    root: String,
+    index: u32,
+    oid: String,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.stash_drop(index, &oid)).await?)
+}
+
+#[tauri::command]
+pub async fn stash_details(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+) -> CmdResult<CommitDetails> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.stash_details(&oid)).await?)
 }
 
 #[tauri::command]
