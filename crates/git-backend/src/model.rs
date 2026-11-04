@@ -98,6 +98,9 @@ pub struct RepoSnapshot {
     pub operation: Option<RepoOperation>,
     pub changes: Vec<FileChange>,
     pub branches: BranchList,
+    /// Loaded from the on-disk cache at startup; a fresh one follows shortly.
+    #[serde(default)]
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

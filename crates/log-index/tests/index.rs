@@ -267,7 +267,8 @@ fn reopening_reuses_the_index_on_disk() {
         update(&idx, &f.repo);
     }
     let idx = f.index();
-    assert_eq!(idx.status().total, 0, "nothing is loaded before update");
+    // Not loaded yet, but the saved row count is known (M2-11).
+    assert_eq!(idx.status().total, 2, "saved size before update");
     assert_eq!(update(&idx, &f.repo), UpdateKind::Labels);
     assert_eq!(all_oids(&idx), f.expected());
 
@@ -691,5 +692,39 @@ fn branch_filter_graph_matches_a_layout_of_the_subset() {
             .unwrap();
         let s = p.start as usize;
         assert_eq!(p.graph, reference[s..s + p.graph.len()], "page at {start}");
+    }
+}
+
+#[test]
+fn first_pages_are_served_before_the_index_is_loaded() {
+    let f = Fixture::new();
+    branchy_history(&f, 700);
+    f.git(&["tag", "v1", "HEAD~3"]);
+    {
+        let idx = f.index();
+        update(&idx, &f.repo);
+    }
+    let idx = f.index();
+    // Nothing loaded yet, but the saved size is known.
+    let s = idx.status();
+    assert_eq!((s.total, s.complete), (700, true));
+    let early: Vec<_> = [0u32, 250, 690]
+        .iter()
+        .map(|&st| idx.page(st, 100).unwrap())
+        .collect();
+    assert!(
+        early[0].rows[3].refs.contains(&"tag: v1".to_string()),
+        "labels saved too"
+    );
+
+    update(&idx, &f.repo);
+    assert!(
+        idx.status().version > s.version,
+        "rows are re-read after loading"
+    );
+    for (p, &start) in early.iter().zip(&[0u32, 250, 690]) {
+        let loaded = idx.page(start, 100).unwrap();
+        assert_eq!(p.rows, loaded.rows, "rows at {start}");
+        assert_eq!(p.graph, loaded.graph, "graph at {start}");
     }
 }

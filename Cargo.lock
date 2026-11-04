@@ -1154,6 +1154,7 @@ dependencies = [
  "glide-git-backend",
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",

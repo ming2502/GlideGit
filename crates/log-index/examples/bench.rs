@@ -26,6 +26,17 @@ fn main() {
 
     let repo = Repo::open(GitCli::discover().unwrap(), &repo_path).unwrap();
     let index = LogIndex::open(&cache, repo.root()).unwrap();
+    // Before anything is loaded: what a reopened index can show at once.
+    let t = Instant::now();
+    let early = index.page(0, 100).unwrap();
+    if early.total > 0 {
+        println!(
+            "before loading: {} rows known, first page in {:?}",
+            early.total,
+            t.elapsed()
+        );
+    }
+
     let started = Instant::now();
     let first = Mutex::new(None);
     let kind = index

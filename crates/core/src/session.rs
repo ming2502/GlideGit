@@ -19,6 +19,7 @@ use glide_log_index::{
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{watch, Mutex, Notify};
 
+use crate::cache::SnapshotCache;
 use crate::error::{CoreError, Result};
 
 /// Quiet period used to coalesce bursts of file-system events.
@@ -58,6 +59,8 @@ pub struct RepoSession {
     state: Arc<RefreshState>,
     tx: watch::Sender<Option<SharedSnapshot>>,
     log: Option<Arc<LogDriver>>,
+    /// Last snapshot on disk, for an instant start next time.
+    cache: Option<Arc<SnapshotCache>>,
     _watcher: Option<RecommendedWatcher>,
 }
 
@@ -91,11 +94,25 @@ impl RepoSession {
         Self::from_repo_with(repo, None).await
     }
 
-    /// Start a session; with `log_cache`, also maintain the commit index for
-    /// the Log view in that directory.
-    pub async fn from_repo_with(repo: Repo, log_cache: Option<PathBuf>) -> Result<Arc<Self>> {
+    /// Start a session; with `cache_dir`, also keep the commit index for the
+    /// Log view and the last snapshot there.
+    ///
+    /// With a cached snapshot the session starts at once with it (marked
+    /// stale) and refreshes in the background; otherwise the first snapshot
+    /// is taken before returning.
+    pub async fn from_repo_with(repo: Repo, cache_dir: Option<PathBuf>) -> Result<Arc<Self>> {
         let repo = Arc::new(repo);
-        let log = match log_cache {
+        let cache = cache_dir
+            .as_deref()
+            .map(|d| Arc::new(SnapshotCache::new(&d.join("snapshots"), repo.root())));
+        let cached = match &cache {
+            Some(c) => {
+                let c = c.clone();
+                tokio::task::spawn_blocking(move || c.load()).await?
+            }
+            None => None,
+        };
+        let log = match cache_dir.map(|d| d.join("log-index")) {
             Some(dir) => {
                 let root = repo.root().to_path_buf();
                 match tokio::task::spawn_blocking(move || LogIndex::open(&dir, &root)).await? {
@@ -144,9 +161,23 @@ impl RepoSession {
             state,
             tx,
             log,
+            cache,
             _watcher: watcher,
         });
-        session.refresh_now().await?;
+        match cached {
+            Some(snap) => {
+                session.tx.send_replace(Some(Arc::new(snap)));
+                let s = session.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = s.refresh_now().await {
+                        tracing::warn!("first refresh failed: {e}");
+                    }
+                });
+            }
+            None => {
+                session.refresh_now().await?;
+            }
+        }
         tokio::spawn(refresh_loop(
             Arc::downgrade(&session),
             session.state.clone(),
@@ -199,14 +230,19 @@ impl RepoSession {
             return;
         }
         *published = seq;
-        self.tx.send_if_modified(|cur| {
+        let changed = self.tx.send_if_modified(|cur| {
             if cur.as_deref() == Some(&*snap) {
                 false
             } else {
-                *cur = Some(snap);
+                *cur = Some(snap.clone());
                 true
             }
         });
+        if changed {
+            if let Some(c) = &self.cache {
+                c.store(snap);
+            }
+        }
     }
 
     /// Run a read-only operation on the blocking pool (concurrent with other reads).

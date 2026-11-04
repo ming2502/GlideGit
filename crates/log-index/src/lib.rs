@@ -122,6 +122,9 @@ pub enum UpdateKind {
 #[derive(Default)]
 struct State {
     loaded: bool,
+    /// Until the index is loaded: its size and labels as saved last time, so
+    /// the first pages can be served straight from the database.
+    early: Option<Early>,
     /// Table keys in display order (ascending).
     order: Vec<i64>,
     /// Graph layout state before selected rows, ascending by table key.
@@ -131,6 +134,16 @@ struct State {
     version: u64,
     error: Option<String>,
 }
+
+#[derive(Debug, Clone, Default)]
+struct Early {
+    total: u32,
+    labels: HashMap<String, Vec<String>>,
+}
+
+/// Before the index is loaded, pages up to this row get a graph laid out
+/// from the top; deeper ones come without graph until loading finishes.
+const EARLY_GRAPH_ROWS: usize = 20_000;
 
 /// The graph layout state before the row with table key `pos`.
 #[derive(Debug, Clone)]
@@ -282,6 +295,21 @@ impl LogIndex {
         )?;
         reader.busy_timeout(Duration::from_secs(5))?;
 
+        // What a complete index on disk holds, for the first pages.
+        let early = if get_meta(&conn, "complete")?.as_deref() == Some("1") {
+            get_meta(&conn, "count")?
+                .and_then(|n| n.parse().ok())
+                .map(|total| Early {
+                    total,
+                    labels: get_meta(&conn, "labels")
+                        .ok()
+                        .flatten()
+                        .and_then(|j| serde_json::from_str(&j).ok())
+                        .unwrap_or_default(),
+                })
+        } else {
+            None
+        };
         Ok(Self {
             root,
             path,
@@ -292,6 +320,7 @@ impl LogIndex {
             reader: Mutex::new(reader),
             state: RwLock::new(State {
                 version: 1,
+                early,
                 ..State::default()
             }),
             view: Mutex::new(None),
@@ -304,6 +333,15 @@ impl LogIndex {
 
     pub fn status(&self) -> LogStatus {
         let st = self.read_state();
+        if let (false, Some(e)) = (st.loaded, &st.early) {
+            return LogStatus {
+                root: self.root.clone(),
+                total: e.total,
+                complete: true,
+                version: st.version,
+                error: None,
+            };
+        }
         LogStatus {
             root: self.root.clone(),
             total: st.order.len() as u32,
@@ -316,7 +354,63 @@ impl LogIndex {
     /// Rows `start..start + count` (clamped to what exists), with their graph.
     pub fn page(&self, start: u32, count: u32) -> Result<LogPage> {
         let st = self.read_state();
+        if let (false, Some(e)) = (st.loaded, &st.early) {
+            return self.early_page(&st, e, start, count);
+        }
         self.read_page(&st, &st.order, Some(&st.checkpoints), start, count)
+    }
+
+    /// A page read before the index is loaded: rows by offset straight from
+    /// the table (its key order is the display order).
+    fn early_page(&self, st: &State, e: &Early, start: u32, count: u32) -> Result<LogPage> {
+        let total = e.total as usize;
+        let s = (start as usize).min(total);
+        let end = s.saturating_add(count as usize).min(total);
+        let with_graph = end <= EARLY_GRAPH_ROWS;
+        let from = if with_graph { 0 } else { s };
+        let mut rows = Vec::new();
+        let mut graph = Vec::new();
+        let mut layout = Layout::new();
+        let db = lock(&self.reader);
+        let mut stmt = db.prepare_cached(
+            "SELECT c.pos, c.oid, c.parents, a.name, a.email, c.time, c.subject \
+             FROM commits c JOIN authors a ON a.id = c.author \
+             ORDER BY c.pos LIMIT ?1 OFFSET ?2",
+        )?;
+        let mut it = stmt.query([(end - from) as i64, from as i64])?;
+        let mut row = from;
+        while let Some(r) = it.next()? {
+            let oid = blob(r.get_ref(1)?);
+            let parents = blob(r.get_ref(2)?);
+            if row < s {
+                layout.step(oid, parents, None);
+                row += 1;
+                continue;
+            }
+            if with_graph {
+                let mut g = GraphRow::default();
+                layout.step(oid, parents, Some(&mut g));
+                graph.push(g);
+            }
+            let hex = hex_encode(oid);
+            rows.push(CommitSummary {
+                refs: e.labels.get(&hex).cloned().unwrap_or_default(),
+                oid: hex,
+                parents: parents.chunks(oid.len().max(1)).map(hex_encode).collect(),
+                author_name: r.get(3)?,
+                author_email: r.get(4)?,
+                author_time: r.get(5)?,
+                subject: r.get(6)?,
+            });
+            row += 1;
+        }
+        Ok(LogPage {
+            start: s as u32,
+            total: total as u32,
+            version: st.version,
+            rows,
+            graph,
+        })
     }
 
     /// Like [`page`](Self::page), for the rows matching `filter`.
@@ -547,6 +641,9 @@ impl LogIndex {
     ) -> Result<UpdateKind> {
         let mut w = lock(&self.writer);
         let result = self.update_locked(&mut w, repo, cancel, on_status);
+        if result.is_ok() {
+            self.save_summary(&w);
+        }
         {
             let mut st = self.write_state();
             st.error = match &result {
@@ -557,6 +654,19 @@ impl LogIndex {
         }
         on_status(self.status());
         result
+    }
+
+    /// Remember the row count and labels, for the first pages next time.
+    fn save_summary(&self, w: &Writer) {
+        let (count, labels) = {
+            let st = self.read_state();
+            (
+                st.order.len(),
+                serde_json::to_string(&st.tips.labels).unwrap_or_default(),
+            )
+        };
+        let _ = w.set_meta("count", &count.to_string());
+        let _ = w.set_meta("labels", &labels);
     }
 
     fn update_locked(
@@ -623,6 +733,7 @@ impl LogIndex {
         }
         let mut st = self.write_state();
         st.loaded = true;
+        st.early = None;
         st.order = order;
         st.checkpoints = checkpoints;
         st.tips = tips;

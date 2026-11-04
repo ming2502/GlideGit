@@ -407,6 +407,9 @@ input {
   margin-top: 6px;
   font-size: 12px;
 }
+.sb-stale {
+  margin-left: 10px;
+}
 .op-banner {
   flex: none;
   display: flex;

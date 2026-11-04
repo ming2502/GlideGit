@@ -13,8 +13,8 @@ use crate::session::RepoSession;
 pub struct RepositoryManager {
     cli: GitCli,
     sessions: RwLock<HashMap<String, Arc<RepoSession>>>,
-    /// Where commit indexes are stored; `None` disables the Log index.
-    log_cache: StdRwLock<Option<PathBuf>>,
+    /// Where commit indexes and snapshots are cached; `None` disables both.
+    cache_dir: StdRwLock<Option<PathBuf>>,
 }
 
 impl RepositoryManager {
@@ -22,13 +22,14 @@ impl RepositoryManager {
         Self {
             cli,
             sessions: RwLock::new(HashMap::new()),
-            log_cache: StdRwLock::new(None),
+            cache_dir: StdRwLock::new(None),
         }
     }
 
-    /// Store commit indexes under `dir` for repositories opened from now on.
-    pub fn set_log_cache_dir(&self, dir: PathBuf) {
-        *self.log_cache.write().unwrap_or_else(|e| e.into_inner()) = Some(dir);
+    /// Cache commit indexes and snapshots under `dir` for repositories
+    /// opened from now on.
+    pub fn set_cache_dir(&self, dir: PathBuf) {
+        *self.cache_dir.write().unwrap_or_else(|e| e.into_inner()) = Some(dir);
     }
 
     pub fn cli(&self) -> &GitCli {
@@ -45,12 +46,12 @@ impl RepositoryManager {
         if let Some(existing) = self.sessions.read().await.get(&key) {
             return Ok((existing.clone(), false));
         }
-        let log_cache = self
-            .log_cache
+        let cache_dir = self
+            .cache_dir
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let session = RepoSession::from_repo_with(repo, log_cache).await?;
+        let session = RepoSession::from_repo_with(repo, cache_dir).await?;
         let mut map = self.sessions.write().await;
         // Another caller may have opened it while we were taking the first snapshot.
         let entry = map.entry(key).or_insert_with(|| session.clone());

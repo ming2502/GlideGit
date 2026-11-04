@@ -73,10 +73,7 @@ fn main() {
         .manage(state)
         .setup(move |app| {
             match app.path().app_cache_dir() {
-                Ok(dir) => app
-                    .state::<AppState>()
-                    .manager
-                    .set_log_cache_dir(dir.join("log-index")),
+                Ok(dir) => app.state::<AppState>().manager.set_cache_dir(dir),
                 Err(e) => tracing::warn!("no cache directory, Log index disabled: {e}"),
             }
             bridge.attach(app.handle().clone());

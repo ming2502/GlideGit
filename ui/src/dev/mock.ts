@@ -59,6 +59,7 @@ function snapshot(root: string = MAIN_REPO): RepoSnapshot {
       root,
       head: { branch: "main", oid: "b0b0b0b0", detached: false, upstream: "origin/main", ahead: 0, behind: 0 },
       operation: null,
+      stale: false,
       changes: root.endsWith("website")
         ? [{ path: "src/index.html", origPath: null, staged: null, unstaged: "modified", conflicted: false }]
         : [],
@@ -69,6 +70,7 @@ function snapshot(root: string = MAIN_REPO): RepoSnapshot {
     root: MAIN_REPO,
     head: { branch: "feature/commit-panel", oid: "a1b2c3d4", detached: false, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 },
     operation,
+    stale: false,
     changes,
     branches: {
       local: [
@@ -422,8 +424,12 @@ export function installMock(): void {
       case "plugin:dialog|open":
         // Each "Open…" in the demo picks the next sample repository.
         return DEMO_REPOS[pickCount++ % DEMO_REPOS.length];
-      case "open_repo":
-        return snapshot(a.path as string);
+      case "open_repo": {
+        // Like the app: the cached snapshot first, the fresh one a moment later.
+        const root = a.path as string;
+        setTimeout(() => void emit("repo-snapshot", { root, snapshot: snapshot(root) }), 600);
+        return { ...snapshot(root), stale: true };
+      }
       case "refresh":
         return snapshot(a.root as string);
       case "stage":

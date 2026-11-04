@@ -183,7 +183,16 @@ export function StatusBar({ gitVersion }: { gitVersion: string }) {
           )}
         </>
       ) : (
-        <span className="muted">{snapshot ? `${snapshot.changes.length} 个变更` : ""}</span>
+        <span className="muted">
+          {snapshot ? `${snapshot.changes.length} 个变更` : ""}
+          {/* Opened from the cache; the real status is on its way. */}
+          {snapshot?.stale && (
+            <span className="sb-stale" title="显示的是上次保存的状态，正在后台刷新">
+              <span className="spinner inline" />
+              正在刷新…
+            </span>
+          )}
+        </span>
       )}
       <span className="spacer" />
       <span className="muted">git {gitVersion}</span>

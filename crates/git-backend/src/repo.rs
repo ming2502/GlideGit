@@ -383,6 +383,7 @@ impl Repo {
             operation: self.operation(),
             changes,
             branches,
+            stale: false,
         })
     }
 

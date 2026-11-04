@@ -192,7 +192,7 @@ async fn log_index_follows_commits() {
     let dir = init();
     let cache = tempfile::tempdir().unwrap();
     let m = RepositoryManager::new(cli());
-    m.set_log_cache_dir(cache.path().to_path_buf());
+    m.set_cache_dir(cache.path().to_path_buf());
     let (session, _) = m.open(dir.path()).await.unwrap();
 
     // Unborn branch: an empty, complete index.
@@ -217,4 +217,50 @@ async fn log_index_follows_commits() {
     assert!(plain.log_status().is_none());
     let err = plain.log_page(0, 1, Default::default()).await.unwrap_err();
     assert_eq!(err.kind(), "logIndex");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cached_snapshot_starts_instantly_then_refreshes() {
+    let dir = init();
+    let cache = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), "a\n").unwrap();
+
+    // First open: no cache yet, the snapshot is fresh and gets written.
+    {
+        let m = RepositoryManager::new(cli());
+        m.set_cache_dir(cache.path().to_path_buf());
+        let (s, _) = m.open(dir.path()).await.unwrap();
+        let snap = s.snapshot().unwrap();
+        assert!(!snap.stale);
+        assert_eq!(snap.changes.len(), 1);
+        let files = cache.path().join("snapshots");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while fs::read_dir(&files).map(|d| d.count()).unwrap_or(0) == 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("snapshot written to the cache");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // The repository changes while the app is closed.
+    fs::write(dir.path().join("b.txt"), "b\n").unwrap();
+
+    // Second open: the cached (stale) snapshot comes first, then the real one.
+    let m = RepositoryManager::new(cli());
+    m.set_cache_dir(cache.path().to_path_buf());
+    let (s, _) = m.open(dir.path()).await.unwrap();
+    let mut rx = s.subscribe();
+    let first = rx.borrow_and_update().clone().unwrap();
+    if first.stale {
+        assert_eq!(first.changes.len(), 1, "cached state");
+        tokio::time::timeout(Duration::from_secs(10), rx.changed())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let fresh = s.snapshot().unwrap();
+    assert!(!fresh.stale);
+    assert_eq!(fresh.changes.len(), 2);
 }
