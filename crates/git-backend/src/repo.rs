@@ -25,6 +25,8 @@ pub struct Repo {
     common_dir: PathBuf,
     /// Branch list from the last snapshot, reused while refs are unchanged.
     branch_cache: Arc<Mutex<Option<BranchCache>>>,
+    /// "abc1234 Subject" by commit id, for operation details.
+    describe_cache: Arc<Mutex<std::collections::HashMap<String, String>>>,
 }
 
 #[derive(Debug)]
@@ -202,6 +204,7 @@ impl Repo {
             git_dir,
             common_dir,
             branch_cache: Arc::default(),
+            describe_cache: Arc::default(),
         })
     }
 
@@ -353,6 +356,96 @@ impl Repo {
         }
     }
 
+    /// Progress and names for the operation in progress (read from git's
+    /// state files; commit descriptions are cached by id).
+    pub fn operation_info(&self) -> Option<OperationInfo> {
+        let op = self.operation()?;
+        let g = &self.git_dir;
+        let read = |p: PathBuf| {
+            std::fs::read_to_string(p)
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
+        let num = |p: PathBuf| read(p).and_then(|s| s.parse::<u32>().ok());
+        let head_file =
+            |name: &str| read(g.join(name)).and_then(|s| s.lines().next().map(str::to_string));
+        let mut info = OperationInfo {
+            can_skip: op != RepoOperation::Merge,
+            ..OperationInfo::default()
+        };
+        match op {
+            RepoOperation::Rebase => {
+                let (dir, step, total) = if g.join("rebase-merge").is_dir() {
+                    (g.join("rebase-merge"), "msgnum", "end")
+                } else {
+                    (g.join("rebase-apply"), "next", "last")
+                };
+                info.step = num(dir.join(step));
+                info.total = num(dir.join(total));
+                info.branch = read(dir.join("head-name"))
+                    .filter(|h| h != "detached HEAD")
+                    .map(|h| h.trim_start_matches("refs/heads/").to_string());
+                info.onto = read(dir.join("onto")).and_then(|o| self.describe(&o));
+                info.commit = head_file("REBASE_HEAD").and_then(|o| self.describe(&o));
+            }
+            RepoOperation::Merge => {
+                info.commit = head_file("MERGE_HEAD").and_then(|o| self.describe(&o))
+            }
+            RepoOperation::CherryPick => {
+                info.commit = head_file("CHERRY_PICK_HEAD").and_then(|o| self.describe(&o))
+            }
+            RepoOperation::Revert => {
+                info.commit = head_file("REVERT_HEAD").and_then(|o| self.describe(&o))
+            }
+        }
+        Some(info)
+    }
+
+    /// "abc1234 Subject" for a commit id, cached (ids never change meaning).
+    fn describe(&self, oid: &str) -> Option<String> {
+        check_oid(oid).ok()?;
+        if let Some(d) = self
+            .describe_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(oid)
+        {
+            return Some(d.clone());
+        }
+        let out = self
+            .read(&["log", "-1", "--format=%h %s", oid, "--"])
+            .ok()?;
+        let d = out.trim().to_string();
+        if d.is_empty() {
+            return None;
+        }
+        let mut cache = self
+            .describe_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(oid.to_string(), d.clone());
+        Some(d)
+    }
+
+    /// Skip the commit the rebase / cherry-pick / revert stopped at.
+    pub fn skip_operation(&self) -> Result<()> {
+        let cmd = match self.operation() {
+            Some(RepoOperation::Rebase) => "rebase",
+            Some(RepoOperation::CherryPick) => "cherry-pick",
+            Some(RepoOperation::Revert) => "revert",
+            Some(RepoOperation::Merge) => {
+                return Err(GitError::Invalid(
+                    "a merge cannot skip; continue or abort it".into(),
+                ))
+            }
+            None => return Ok(()),
+        };
+        self.write(&["-c", "core.editor=true", cmd, "--skip"])
+    }
+
     pub fn branches(&self) -> Result<BranchList> {
         let text = self.read(&[
             "for-each-ref",
@@ -381,6 +474,7 @@ impl Repo {
             root: self.root.to_string_lossy().into_owned(),
             head,
             operation: self.operation(),
+            operation_info: self.operation_info(),
             changes,
             branches,
             stale: false,

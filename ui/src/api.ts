@@ -89,6 +89,7 @@ export const api = {
   reset: (root: string, oid: string, mode: ResetMode) => invoke<void>("reset", { root, oid, mode }),
   abortOperation: (root: string) => invoke<void>("abort_operation", { root }),
   continueOperation: (root: string) => invoke<void>("continue_operation", { root }),
+  skipOperation: (root: string) => invoke<void>("skip_operation", { root }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>
     invoke<void>("create_branch", { root, name, start, checkout }),
   deleteBranch: (root: string, name: string, force: boolean) =>

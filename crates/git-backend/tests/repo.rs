@@ -1059,3 +1059,55 @@ fn resolve_with_ours() {
     assert!(repo.status().unwrap().1.iter().all(|c| !c.conflicted));
     assert!(repo.conflict_texts("../x").is_err());
 }
+
+#[test]
+fn rebase_progress_and_skip() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "base\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    repo.create_branch("feature", None, true).unwrap();
+    write(root, "a.txt", "feature\n");
+    repo.stage_all().unwrap();
+    repo.commit("feature edit", false).unwrap();
+    write(root, "b.txt", "b\n");
+    repo.stage_all().unwrap();
+    repo.commit("add b", false).unwrap();
+    repo.checkout_branch("main", false).unwrap();
+    write(root, "a.txt", "main\n");
+    repo.stage_all().unwrap();
+    repo.commit("main edit", false).unwrap();
+    repo.checkout_branch("feature", false).unwrap();
+
+    let err = repo
+        .cli()
+        .run(root, &["rebase", "main"], RunOptions::write())
+        .unwrap_err();
+    assert!(matches!(err, GitError::Failed { .. }));
+    let snap = repo.snapshot().unwrap();
+    assert_eq!(snap.operation, Some(RepoOperation::Rebase));
+    let info = snap.operation_info.unwrap();
+    assert_eq!((info.step, info.total), (Some(1), Some(2)));
+    assert_eq!(info.branch.as_deref(), Some("feature"));
+    assert!(info.onto.unwrap().ends_with("main edit"));
+    assert!(info.commit.unwrap().ends_with("feature edit"));
+    assert!(info.can_skip);
+
+    // Skipping the conflicting commit applies the rest and finishes.
+    repo.skip_operation().unwrap();
+    assert_eq!(repo.operation(), None);
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "main\n");
+    assert!(root.join("b.txt").exists());
+    assert_eq!(repo.last_commit_message().unwrap(), "add b");
+    assert!(repo.snapshot().unwrap().operation_info.is_none());
+}
+
+#[test]
+fn merge_cannot_skip() {
+    let (_dir, repo) = conflicted_repo();
+    let info = repo.operation_info().unwrap();
+    assert!(!info.can_skip);
+    assert!(info.commit.unwrap().ends_with("their change"));
+    assert!(matches!(repo.skip_operation(), Err(GitError::Invalid(_))));
+}

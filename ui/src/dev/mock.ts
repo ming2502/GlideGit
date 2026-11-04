@@ -60,6 +60,7 @@ function snapshot(root: string = MAIN_REPO): RepoSnapshot {
       head: { branch: "main", oid: "b0b0b0b0", detached: false, upstream: "origin/main", ahead: 0, behind: 0 },
       operation: null,
       stale: false,
+      operationInfo: null,
       changes: root.endsWith("website")
         ? [{ path: "src/index.html", origPath: null, staged: null, unstaged: "modified", conflicted: false }]
         : [],
@@ -71,6 +72,9 @@ function snapshot(root: string = MAIN_REPO): RepoSnapshot {
     head: { branch: "feature/commit-panel", oid: "a1b2c3d4", detached: false, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 },
     operation,
     stale: false,
+    operationInfo: operation
+      ? { step: null, total: null, commit: "78dde6c Log filters", branch: null, onto: null, canSkip: true }
+      : null,
     changes,
     branches: {
       local: [
@@ -500,6 +504,7 @@ export function installMock(): void {
           };
         });
       case "abort_operation":
+      case "skip_operation":
       case "continue_operation":
         return sleep(200).then(() => {
           operation = null;

@@ -126,6 +126,7 @@ fn main() {
             commands::reset,
             commands::abort_operation,
             commands::continue_operation,
+            commands::skip_operation,
             commands::delete_branch,
             commands::fetch,
             commands::pull,

@@ -123,6 +123,7 @@ mod tests {
             changes: Vec::new(),
             branches: BranchList::default(),
             stale: false,
+            operation_info: None,
         }
     }
 

@@ -473,6 +473,12 @@ pub async fn abort_operation(state: State<'_, AppState>, root: String) -> CmdRes
 }
 
 #[tauri::command]
+pub async fn skip_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(|r| r.skip_operation()).await?)
+}
+
+#[tauri::command]
 pub async fn continue_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     Ok(s.write(|r| r.continue_operation()).await?)

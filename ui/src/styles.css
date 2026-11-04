@@ -557,8 +557,33 @@ input {
   background: color-mix(in srgb, var(--k-conflicted) 14%, var(--bg));
   border-bottom: 1px solid var(--border-strong);
 }
-.op-banner b {
-  margin: 0 2px;
+.op-text {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+.op-text > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.op-text b {
+  flex: 0 1 auto;
+}
+.op-step {
+  flex: 0 1 auto;
+  color: var(--muted);
+}
+.op-state {
+  flex: none;
+}
+.op-state.bad {
+  color: var(--danger);
+}
+.op-state.ok {
+  color: var(--success);
 }
 .op-banner .spacer {
   flex: 1;

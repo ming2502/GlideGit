@@ -2,10 +2,15 @@
 import type { BranchList } from "./BranchList";
 import type { FileChange } from "./FileChange";
 import type { HeadInfo } from "./HeadInfo";
+import type { OperationInfo } from "./OperationInfo";
 import type { RepoOperation } from "./RepoOperation";
 
 export type RepoSnapshot = { root: string, head: HeadInfo, operation: RepoOperation | null, changes: Array<FileChange>, branches: BranchList, 
 /**
  * Loaded from the on-disk cache at startup; a fresh one follows shortly.
  */
-stale: boolean, };
+stale: boolean, 
+/**
+ * Details of the operation in progress, for the guidance banner.
+ */
+operationInfo: OperationInfo | null, };

@@ -101,6 +101,27 @@ pub struct RepoSnapshot {
     /// Loaded from the on-disk cache at startup; a fresh one follows shortly.
     #[serde(default)]
     pub stale: bool,
+    /// Details of the operation in progress, for the guidance banner.
+    #[serde(default)]
+    pub operation_info: Option<OperationInfo>,
+}
+
+/// What the stopped merge / rebase / cherry-pick / revert is doing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OperationInfo {
+    /// Rebase: the commit being applied (1-based) and how many there are.
+    pub step: Option<u32>,
+    pub total: Option<u32>,
+    /// The commit being applied, merged, picked or reverted ("abc1234 Subject").
+    pub commit: Option<String>,
+    /// Rebase: the branch being rebased.
+    pub branch: Option<String>,
+    /// Rebase: what it is rebased onto ("abc1234 Subject").
+    pub onto: Option<String>,
+    /// The operation can skip the current commit (rebase, cherry-pick, revert).
+    pub can_skip: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
