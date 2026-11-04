@@ -17,6 +17,7 @@
 //! Ref labels are not stored: they change far more often than history and
 //! come from the same cheap `for-each-ref` call that detects changes.
 
+mod graph;
 mod record;
 mod refs;
 
@@ -26,10 +27,12 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use glide_git_backend::{CancelToken, CommitSummary, GitError, Repo, RunOptions};
+use rusqlite::types::ValueRef;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use ts_rs::TS;
 
+pub use graph::{GraphRow, Lane, Layout};
 pub use record::{hex_decode, hex_encode, Record, RecordParser, FORMAT};
 pub use refs::{read_tips, RefTips};
 
@@ -38,6 +41,8 @@ const SCHEMA_VERSION: &str = "2";
 /// Rows written before the first status update, so the Log fills quickly.
 const FIRST_BATCH: usize = 300;
 const BATCH: usize = 20_000;
+/// Rows between saved layout states; a page replays at most this many extra rows.
+const CHECKPOINT_EVERY: usize = 256;
 const CREATE_OID_INDEX: &str = "CREATE UNIQUE INDEX IF NOT EXISTS commits_oid ON commits(oid);";
 
 #[derive(Debug, thiserror::Error)]
@@ -83,6 +88,8 @@ pub struct LogPage {
     pub total: u32,
     pub version: u64,
     pub rows: Vec<CommitSummary>,
+    /// Graph drawing data, one entry per row.
+    pub graph: Vec<GraphRow>,
 }
 
 /// How [`LogIndex::update`] brought the index up to date.
@@ -103,10 +110,59 @@ struct State {
     loaded: bool,
     /// Table keys in display order (ascending).
     order: Vec<i64>,
+    /// Graph layout state before selected rows, ascending by table key.
+    checkpoints: Vec<Checkpoint>,
     tips: RefTips,
     complete: bool,
     version: u64,
     error: Option<String>,
+}
+
+/// The graph layout state before the row with table key `pos`.
+#[derive(Debug, Clone)]
+struct Checkpoint {
+    pos: i64,
+    lanes: Vec<Lane>,
+}
+
+/// Lays out rows in display order, saving a checkpoint every
+/// [`CHECKPOINT_EVERY`] rows.
+#[derive(Default)]
+struct Tracker {
+    layout: Layout,
+    row: usize,
+    /// The first row's checkpoint already exists (resuming from it).
+    resumed: bool,
+}
+
+impl Tracker {
+    fn resume(cp: &Checkpoint) -> Self {
+        Self {
+            layout: Layout::from_lanes(cp.lanes.clone()),
+            row: 0,
+            resumed: true,
+        }
+    }
+
+    fn feed(&mut self, pos: i64, oid: &[u8], parents: &[u8], out: &mut Vec<Checkpoint>) {
+        if self.resumed {
+            self.resumed = false;
+        } else if self.row.is_multiple_of(CHECKPOINT_EVERY) {
+            out.push(Checkpoint {
+                pos,
+                lanes: self.layout.lanes().to_vec(),
+            });
+        }
+        self.layout.step(oid, parents, None);
+        self.row += 1;
+    }
+}
+
+fn blob<'a>(v: ValueRef<'a>) -> &'a [u8] {
+    match v {
+        ValueRef::Blob(b) => b,
+        _ => &[],
+    }
 }
 
 struct Writer {
@@ -240,39 +296,53 @@ impl LogIndex {
         }
     }
 
-    /// Rows `start..start + count` (clamped to what exists).
+    /// Rows `start..start + count` (clamped to what exists), with their graph.
     pub fn page(&self, start: u32, count: u32) -> Result<LogPage> {
         let st = self.read_state();
         let total = st.order.len();
         let s = (start as usize).min(total);
         let e = s.saturating_add(count as usize).min(total);
         let mut rows = Vec::with_capacity(e - s);
+        let mut graph = Vec::with_capacity(e - s);
         if s < e {
+            let (first, last) = (st.order[s], st.order[e - 1]);
+            // Resume the layout from the nearest saved state above the page.
+            let cp = st.checkpoints.partition_point(|c| c.pos <= first);
+            let (mut layout, from) = match cp {
+                0 => (Layout::new(), st.order[0]),
+                i => {
+                    let c = &st.checkpoints[i - 1];
+                    (Layout::from_lanes(c.lanes.clone()), c.pos)
+                }
+            };
             let db = lock(&self.reader);
             let mut stmt = db.prepare_cached(
-                "SELECT c.oid, c.parents, a.name, a.email, c.time, c.subject \
+                "SELECT c.pos, c.oid, c.parents, a.name, a.email, c.time, c.subject \
                  FROM commits c JOIN authors a ON a.id = c.author \
                  WHERE c.pos BETWEEN ?1 AND ?2 ORDER BY c.pos",
             )?;
-            let it = stmt.query_map([st.order[s], st.order[e - 1]], |r| {
-                let oid: Vec<u8> = r.get(0)?;
-                let parents: Vec<u8> = r.get(1)?;
-                Ok(CommitSummary {
-                    oid: hex_encode(&oid),
-                    parents: parents.chunks(oid.len().max(1)).map(hex_encode).collect(),
-                    author_name: r.get(2)?,
-                    author_email: r.get(3)?,
-                    author_time: r.get(4)?,
-                    subject: r.get(5)?,
-                    refs: Vec::new(),
-                })
-            })?;
-            for row in it {
-                let mut c = row?;
-                if let Some(l) = st.tips.labels.get(&c.oid) {
-                    c.refs = l.clone();
+            let mut it = stmt.query([from, last])?;
+            while let Some(r) = it.next()? {
+                let pos: i64 = r.get(0)?;
+                let oid = blob(r.get_ref(1)?);
+                let parents = blob(r.get_ref(2)?);
+                if pos < first {
+                    layout.step(oid, parents, None);
+                    continue;
                 }
-                rows.push(c);
+                let mut g = GraphRow::default();
+                layout.step(oid, parents, Some(&mut g));
+                graph.push(g);
+                let hex = hex_encode(oid);
+                rows.push(CommitSummary {
+                    refs: st.tips.labels.get(&hex).cloned().unwrap_or_default(),
+                    oid: hex,
+                    parents: parents.chunks(oid.len().max(1)).map(hex_encode).collect(),
+                    author_name: r.get(3)?,
+                    author_email: r.get(4)?,
+                    author_time: r.get(5)?,
+                    subject: r.get(6)?,
+                });
             }
         }
         Ok(LogPage {
@@ -280,6 +350,7 @@ impl LogIndex {
             total: total as u32,
             version: st.version,
             rows,
+            graph,
         })
     }
 
@@ -357,11 +428,23 @@ impl LogIndex {
     fn load(&self, w: &mut Writer) -> Result<()> {
         let complete = get_meta(&w.conn, "complete")?.as_deref() == Some("1");
         let mut order = Vec::new();
+        let mut checkpoints = Vec::new();
         let mut tips = RefTips::default();
         if complete {
-            let mut stmt = w.conn.prepare("SELECT pos FROM commits ORDER BY pos")?;
-            for pos in stmt.query_map([], |r| r.get::<_, i64>(0))? {
-                order.push(pos?);
+            let mut tracker = Tracker::default();
+            let mut stmt = w
+                .conn
+                .prepare("SELECT pos, oid, parents FROM commits ORDER BY pos")?;
+            let mut it = stmt.query([])?;
+            while let Some(r) = it.next()? {
+                let pos: i64 = r.get(0)?;
+                tracker.feed(
+                    pos,
+                    blob(r.get_ref(1)?),
+                    blob(r.get_ref(2)?),
+                    &mut checkpoints,
+                );
+                order.push(pos);
             }
             tips.tips = get_meta(&w.conn, "tips")?
                 .unwrap_or_default()
@@ -372,6 +455,7 @@ impl LogIndex {
         let mut st = self.write_state();
         st.loaded = true;
         st.order = order;
+        st.checkpoints = checkpoints;
         st.tips = tips;
         st.complete = complete;
         st.version += 1;
@@ -455,18 +539,69 @@ impl LogIndex {
                 }
                 let keys = w.insert(added, base)?;
                 w.set_meta("tips", &tips_text)?;
-                Ok((gone, keys))
+                let checkpoints = self.relayout(&w.conn, &gone, &keys)?;
+                Ok((gone, keys, checkpoints))
             },
-            |st, (gone, keys)| {
+            |st, (gone, keys, checkpoints)| {
                 if !gone.is_empty() {
                     st.order.retain(|p| !gone.contains(p));
                 }
                 st.order.splice(0..0, keys);
+                if let Some(c) = checkpoints {
+                    st.checkpoints = c;
+                }
                 st.tips = new.clone();
                 st.version += 1;
             },
         )?;
         Ok(Some(kind))
+    }
+
+    /// New checkpoints after `gone` rows were removed and `added` rows put
+    /// in front (`None`: nothing moved). Reads the uncommitted transaction.
+    ///
+    /// Lays the rows out again from the first affected one, but only until
+    /// the state matches an old checkpoint below every change: from there on
+    /// the layout is the same as before, so the rest is reused.
+    fn relayout(
+        &self,
+        conn: &Connection,
+        gone: &HashSet<i64>,
+        added: &[i64],
+    ) -> Result<Option<Vec<Checkpoint>>> {
+        if gone.is_empty() && added.is_empty() {
+            return Ok(None);
+        }
+        let st = self.read_state();
+        let old = &st.checkpoints;
+        let settled_after = gone.iter().chain(added).copied().max().unwrap_or(i64::MIN);
+        // Old checkpoints above every change stay valid.
+        let keep = match (added.is_empty(), gone.iter().min()) {
+            (true, Some(&min_gone)) => old.partition_point(|c| c.pos < min_gone),
+            _ => 0,
+        };
+        let mut out: Vec<Checkpoint> = old[..keep].to_vec();
+        let (mut tracker, from) = match keep {
+            0 => (Tracker::default(), i64::MIN),
+            k => (Tracker::resume(&old[k - 1]), old[k - 1].pos),
+        };
+
+        let mut stmt =
+            conn.prepare("SELECT pos, oid, parents FROM commits WHERE pos >= ?1 ORDER BY pos")?;
+        let mut it = stmt.query([from])?;
+        while let Some(r) = it.next()? {
+            let pos: i64 = r.get(0)?;
+            if pos > settled_after {
+                if let Ok(i) = old.binary_search_by_key(&pos, |c| c.pos) {
+                    if old[i].lanes == tracker.layout.lanes() {
+                        out.extend_from_slice(&old[i..]);
+                        return Ok(Some(out));
+                    }
+                }
+            }
+            tracker.feed(pos, blob(r.get_ref(1)?), blob(r.get_ref(2)?), &mut out);
+        }
+        Ok(Some(out))
     }
 
     fn full_build(
@@ -493,6 +628,7 @@ impl LogIndex {
             },
             |st, ()| {
                 st.order.clear();
+                st.checkpoints.clear();
                 st.complete = false;
                 st.tips = new;
                 st.version += 1;
@@ -531,8 +667,9 @@ impl LogIndex {
                 });
 
                 let mut next = 0i64;
+                let mut tracker = Tracker::default();
                 let written = rx.iter().try_for_each(|mut rows| {
-                    self.append(w, &mut rows, &mut next)?;
+                    self.append(w, &mut rows, &mut next, &mut tracker)?;
                     on_status(self.status());
                     Ok::<_, IndexError>(())
                 });
@@ -555,17 +692,30 @@ impl LogIndex {
         )
     }
 
-    fn append(&self, w: &mut Writer, batch: &mut Vec<Record>, next: &mut i64) -> Result<()> {
+    fn append(
+        &self,
+        w: &mut Writer,
+        batch: &mut Vec<Record>,
+        next: &mut i64,
+        tracker: &mut Tracker,
+    ) -> Result<()> {
         if batch.is_empty() {
             return Ok(());
         }
         let first = *next;
         *next += batch.len() as i64;
+        let mut checkpoints = Vec::new();
+        for (i, r) in batch.iter().enumerate() {
+            tracker.feed(first + i as i64, &r.oid, &r.parents, &mut checkpoints);
+        }
         let rows = std::mem::take(batch);
         self.apply(
             w,
             |w| w.insert(rows, first),
-            |st, keys| st.order.extend(keys),
+            |st, keys| {
+                st.order.extend(keys);
+                st.checkpoints.extend(checkpoints);
+            },
         )
     }
 

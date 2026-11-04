@@ -252,7 +252,9 @@ export function installMock(): void {
         const start = Math.min(a.start as number, st.total);
         const end = Math.min(start + (a.count as number), st.total);
         const rows = Array.from({ length: end - start }, (_, k) => mockCommit(start + k));
-        return { start, total: st.total, version: st.version, rows };
+        // A straight line; the real layout comes from the backend.
+        const graph = rows.map((_, k) => ({ lane: 0, up: start + k > 0 ? [0, 0] : [], down: [0, 0] }));
+        return { start, total: st.total, version: st.version, rows, graph };
       }
       case "log_row_of": {
         const i = log.findIndex((c) => c.oid === a.oid);

@@ -43,14 +43,18 @@ fn main() {
     }
     println!("{kind:?}: {} commits in {total:?}", status.total);
 
-    let t = Instant::now();
     let mid = status.total / 2;
-    let page = index.page(mid, 100).unwrap();
-    println!(
-        "page of {} at row {mid}: {:?}",
-        page.rows.len(),
-        t.elapsed()
-    );
+    // The last start is a worst case: just before the next checkpoint.
+    for start in [0, mid, mid + 255] {
+        let t = Instant::now();
+        let page = index.page(start, 100).unwrap();
+        let width = page.graph.iter().map(|g| g.width()).max().unwrap_or(0);
+        println!(
+            "page of {} at row {start}: {:?} (graph width {width})",
+            page.rows.len(),
+            t.elapsed()
+        );
+    }
     let size = std::fs::metadata(index.path())
         .map(|m| m.len())
         .unwrap_or(0);

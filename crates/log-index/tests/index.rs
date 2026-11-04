@@ -388,3 +388,128 @@ fn separate_repos_get_separate_files() {
     assert_ne!(ia.path(), ib.path());
     assert!(ia.path().starts_with(a.cache.path()));
 }
+
+/// Graph rows computed in one pass over the whole Log, for comparison.
+fn reference_graph(index: &LogIndex) -> Vec<glide_log_index::GraphRow> {
+    let rows = index.page(0, u32::MAX).unwrap().rows;
+    let mut layout = glide_log_index::Layout::new();
+    rows.iter()
+        .map(|c| {
+            let oid = glide_log_index::hex_decode(&c.oid).unwrap();
+            let parents: Vec<u8> = c
+                .parents
+                .iter()
+                .flat_map(|p| glide_log_index::hex_decode(p).unwrap())
+                .collect();
+            let mut g = glide_log_index::GraphRow::default();
+            layout.step(&oid, &parents, Some(&mut g));
+            g
+        })
+        .collect()
+}
+
+fn assert_pages_match_reference(index: &LogIndex) {
+    let reference = reference_graph(index);
+    let total = reference.len() as u32;
+    for start in [0, 1, 255, 256, 257, 700, total.saturating_sub(5)] {
+        let page = index.page(start, 300).unwrap();
+        assert_eq!(page.graph.len(), page.rows.len());
+        let s = page.start as usize;
+        assert_eq!(
+            page.graph,
+            reference[s..s + page.graph.len()],
+            "page at {start}"
+        );
+    }
+}
+
+/// History with a long-lived side branch merged back every 40 commits.
+fn branchy_history(f: &Fixture, n: usize) {
+    let mut s = String::new();
+    let (mut main, mut side) = (0usize, 0usize);
+    for i in 1..=n {
+        let on_side = i % 40 >= 25 && i % 40 < 35;
+        let msg = format!("c{i}");
+        let branch = if on_side { "side" } else { "main" };
+        s.push_str(&format!(
+            "commit refs/heads/{branch}\nmark :{i}\ncommitter T <t@x> {} +0000\ndata {}\n{msg}\n",
+            1_600_000_000 + i,
+            msg.len()
+        ));
+        if on_side {
+            let from = if side == 0 || i % 40 == 25 {
+                main
+            } else {
+                side
+            };
+            if from > 0 {
+                s.push_str(&format!("from :{from}\n"));
+            }
+            side = i;
+        } else {
+            if main > 0 {
+                s.push_str(&format!("from :{main}\n"));
+            }
+            if i % 40 == 35 && side > 0 {
+                s.push_str(&format!("merge :{side}\n"));
+            }
+            main = i;
+        }
+    }
+    f.repo
+        .cli()
+        .run(
+            f.repo.root(),
+            &["fast-import", "--quiet"],
+            RunOptions::write().stdin(s),
+        )
+        .unwrap();
+    f.git(&["reset", "-q", "--hard", "main"]);
+}
+
+#[test]
+fn graph_pages_match_a_full_layout() {
+    let f = Fixture::new();
+    branchy_history(&f, 1500);
+    let idx = f.index();
+    update(&idx, &f.repo);
+    let widths: Vec<u16> = idx
+        .page(0, 100)
+        .unwrap()
+        .graph
+        .iter()
+        .map(|g| g.width())
+        .collect();
+    assert!(widths.iter().any(|&w| w >= 2), "{widths:?}");
+    assert_pages_match_reference(&idx);
+
+    // Checkpoints rebuilt from disk give the same result.
+    drop(idx);
+    let idx = f.index();
+    update(&idx, &f.repo);
+    assert_pages_match_reference(&idx);
+
+    // New commits on main and on a new branch, then an amend, then a branch
+    // deletion: every incremental update keeps pages equal to a fresh layout.
+    f.commit("on main");
+    f.git(&["switch", "-q", "-c", "topic", "HEAD~30"]);
+    f.commit("topic 1");
+    f.commit("topic 2");
+    assert!(matches!(
+        update(&idx, &f.repo),
+        UpdateKind::Incremental { added: 3, .. }
+    ));
+    assert_pages_match_reference(&idx);
+
+    f.git(&["commit", "-q", "--amend", "--allow-empty", "-m", "topic 2b"]);
+    update(&idx, &f.repo);
+    assert_pages_match_reference(&idx);
+
+    f.git(&["switch", "-q", "main"]);
+    f.git(&["branch", "-q", "-D", "topic", "side"]);
+    assert!(matches!(
+        update(&idx, &f.repo),
+        UpdateKind::Incremental { removed: 2, .. }
+    ));
+    assert_pages_match_reference(&idx);
+}
