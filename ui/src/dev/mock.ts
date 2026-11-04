@@ -6,6 +6,7 @@ import type { Branch } from "../bindings/Branch";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileChange } from "../bindings/FileChange";
 import type { FileDiff } from "../bindings/FileDiff";
+import type { LogStatus } from "../bindings/LogStatus";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 
 const now = Math.floor(Date.now() / 1000);
@@ -91,6 +92,41 @@ const log: CommitSummary[] = Array.from({ length: 240 }, (_, i) => ({
   subject: subjects[i % subjects.length],
   refs: i === 0 ? ["HEAD -> feature/commit-panel"] : i === 2 ? ["origin/feature/commit-panel"] : i === 5 ? ["origin/main", "main", "tag: v0.0.1"] : [],
 }));
+
+/** Simulated commit index: a long history that is "indexed" over a few seconds. */
+const MOCK_HISTORY = 120_000;
+const authors = ["Min", "Alex Chen", "Sam", "Priya Natarajan", "Jonas Weber"];
+function mockCommit(i: number): CommitSummary {
+  if (i < log.length) return log[i];
+  const h = Math.imul(i, 2654435761) >>> 0;
+  return {
+    oid: (h.toString(16).padStart(8, "0") + i.toString(16).padStart(8, "0")).repeat(3).slice(0, 40),
+    parents: i % 17 === 0 ? ["p1", "p2"] : ["p1"],
+    authorName: authors[h % authors.length],
+    authorEmail: "dev@example.com",
+    authorTime: now - i * 3100,
+    subject: `${subjects[h % subjects.length]} (#${MOCK_HISTORY - i})`,
+    refs: i % 5000 === 0 ? [`tag: v0.${Math.floor((MOCK_HISTORY - i) / 5000)}.0`] : [],
+  };
+}
+const indexed = new Map<string, number>();
+function logStatus(root: string): LogStatus {
+  const total = indexed.get(root) ?? 0;
+  return { root, total, complete: total >= MOCK_HISTORY, version: 1, error: null };
+}
+/** Grow the index like a first build does: first rows at once, the rest in batches. */
+function startIndexing(root: string) {
+  if (indexed.has(root)) return;
+  indexed.set(root, 0);
+  let total = 0;
+  const step = () => {
+    total = Math.min(MOCK_HISTORY, total === 0 ? 300 : total + 6000);
+    indexed.set(root, total);
+    void emit("log-status", logStatus(root));
+    if (total < MOCK_HISTORY) setTimeout(step, 150);
+  };
+  setTimeout(step, 250);
+}
 
 function diffFor(path: string): FileDiff {
   const lines: FileDiff["hunks"][number]["lines"] = [];
@@ -208,8 +244,20 @@ export function installMock(): void {
       }
       case "diff_file":
         return diffFor(a.path as string);
-      case "log":
-        return log;
+      case "log_status":
+        startIndexing(a.root as string);
+        return logStatus(a.root as string);
+      case "log_page": {
+        const st = logStatus(a.root as string);
+        const start = Math.min(a.start as number, st.total);
+        const end = Math.min(start + (a.count as number), st.total);
+        const rows = Array.from({ length: end - start }, (_, k) => mockCommit(start + k));
+        return { start, total: st.total, version: st.version, rows };
+      }
+      case "log_row_of": {
+        const i = log.findIndex((c) => c.oid === a.oid);
+        return i < 0 ? null : i;
+      }
       case "last_commit_message":
         return "Add RepoSession with serialised writes";
       case "commit":

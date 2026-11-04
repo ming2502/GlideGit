@@ -10,6 +10,12 @@ pub enum CoreError {
 
     #[error("repository is not open: {0}")]
     NotOpen(String),
+
+    #[error(transparent)]
+    LogIndex(#[from] glide_log_index::IndexError),
+
+    #[error("the commit index is not available for this repository")]
+    NoLogIndex,
 }
 
 impl CoreError {
@@ -18,6 +24,8 @@ impl CoreError {
             CoreError::Git(e) => e.kind(),
             CoreError::Join(_) => "internal",
             CoreError::NotOpen(_) => "notOpen",
+            CoreError::LogIndex(e) if e.is_cancelled() => "cancelled",
+            CoreError::LogIndex(_) | CoreError::NoLogIndex => "logIndex",
         }
     }
 }

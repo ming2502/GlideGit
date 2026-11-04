@@ -159,3 +159,59 @@ async fn remote_ops_do_not_block_local_writes() {
     release_tx.send(()).unwrap();
     slow.await.unwrap().unwrap();
 }
+
+fn empty_commit(r: &glide_git_backend::Repo, msg: &str) -> glide_git_backend::Result<String> {
+    r.cli().run(
+        r.root(),
+        &["commit", "-q", "--allow-empty", "-m", msg],
+        RunOptions::write(),
+    )?;
+    let out = r
+        .cli()
+        .run(r.root(), &["rev-parse", "HEAD"], RunOptions::read())?;
+    Ok(out.stdout_str().trim().to_string())
+}
+
+/// Wait until the index status satisfies `pred`.
+async fn wait_log(session: &RepoSession, pred: impl Fn(&glide_core::LogStatus) -> bool) {
+    let mut rx = session.subscribe_log().expect("session has a log index");
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if pred(&rx.borrow_and_update()) {
+                return;
+            }
+            rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("index status stuck at {:?}", session.log_status()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn log_index_follows_commits() {
+    let dir = init();
+    let cache = tempfile::tempdir().unwrap();
+    let m = RepositoryManager::new(cli());
+    m.set_log_cache_dir(cache.path().to_path_buf());
+    let (session, _) = m.open(dir.path()).await.unwrap();
+
+    // Unborn branch: an empty, complete index.
+    wait_log(&session, |s| s.complete).await;
+    assert_eq!(session.log_status().unwrap().total, 0);
+
+    session.write(|r| empty_commit(r, "first")).await.unwrap();
+    wait_log(&session, |s| s.complete && s.total == 1).await;
+    let oid = session.write(|r| empty_commit(r, "second")).await.unwrap();
+    wait_log(&session, |s| s.total == 2).await;
+
+    let page = session.log_page(0, 50).await.unwrap();
+    assert_eq!(page.rows[0].subject, "second");
+    assert_eq!(page.rows[0].refs, vec!["HEAD -> main"]);
+    assert_eq!(session.log_row_of(oid).await.unwrap(), Some(0));
+
+    // A session without a cache directory has no index.
+    let plain = RepoSession::open(cli(), dir.path()).await.unwrap();
+    assert!(plain.log_status().is_none());
+    let err = plain.log_page(0, 1).await.unwrap_err();
+    assert_eq!(err.kind(), "logIndex");
+}

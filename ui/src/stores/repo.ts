@@ -64,7 +64,6 @@ interface RepoState {
   confirm: ConfirmRequest | null;
   pushDialog: boolean;
   pullMode: PullMode;
-  logVersion: number;
 
   openRepo: (path: string) => Promise<void>;
   /** Close the active tab. */
@@ -127,7 +126,6 @@ export const useRepo = create<RepoState>((set, get) => ({
   confirm: null,
   pushDialog: false,
   pullMode: load<PullMode>("pullMode", "merge"),
-  logVersion: 0,
 
   async openRepo(path) {
     try {
@@ -174,7 +172,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     // Remember the selection of the tab we are leaving.
     const saved = tabs.map((t) => (t.root === active ? { ...t, selectedPath } : t));
     diffSeq++; // drop any in-flight diff for the old tab
-    set((s) => ({
+    set({
       tabs: saved,
       root,
       snapshot: target.snapshot,
@@ -183,8 +181,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       diffLoading: false,
       pendingStage: {},
       branchPopup: false,
-      logVersion: s.logVersion + 1,
-    }));
+    });
     persistTabs(saved, root);
     if (target.selectedPath) void get().reloadDiff();
   },
@@ -216,12 +213,11 @@ export const useRepo = create<RepoState>((set, get) => ({
     if (root !== get().root) return;
     const { selectedPath } = get();
     const stillThere = selectedPath && snapshot.changes.some((c) => c.path === selectedPath);
-    set((s) => ({
+    set({
       snapshot,
       pendingStage: {},
-      logVersion: s.logVersion + 1,
       ...(stillThere ? {} : { selectedPath: null, diff: null }),
-    }));
+    });
     if (stillThere) void get().reloadDiff();
   },
 

@@ -4,17 +4,20 @@
 //! - Serialises write operations (no `index.lock` contention).
 //! - Reads run concurrently on the blocking pool.
 //! - A file watcher plus a debounced refresh loop keeps the snapshot current.
+//! - A background loop keeps the commit index for the Log view current
+//!   (lowest priority: it never holds the write lock).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use glide_git_backend::{GitCli, Repo, RepoSnapshot};
+use glide_git_backend::{CancelToken, GitCli, Repo, RepoSnapshot};
+use glide_log_index::{LogIndex, LogPage, LogStatus};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{watch, Mutex, Notify};
 
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 
 /// Quiet period used to coalesce bursts of file-system events.
 pub const DEBOUNCE: Duration = Duration::from_millis(150);
@@ -52,7 +55,16 @@ pub struct RepoSession {
     net_lock: Mutex<()>,
     state: Arc<RefreshState>,
     tx: watch::Sender<Option<SharedSnapshot>>,
+    log: Option<Arc<LogDriver>>,
     _watcher: Option<RecommendedWatcher>,
+}
+
+/// Owns the commit index and the loop that updates it.
+struct LogDriver {
+    index: Arc<LogIndex>,
+    notify: Notify,
+    cancel: CancelToken,
+    tx: watch::Sender<LogStatus>,
 }
 
 impl RepoSession {
@@ -64,9 +76,36 @@ impl RepoSession {
         Self::from_repo(repo).await
     }
 
-    /// Start a session for an already-opened [`Repo`].
+    /// Start a session for an already-opened [`Repo`], without a commit index.
     pub async fn from_repo(repo: Repo) -> Result<Arc<Self>> {
+        Self::from_repo_with(repo, None).await
+    }
+
+    /// Start a session; with `log_cache`, also maintain the commit index for
+    /// the Log view in that directory.
+    pub async fn from_repo_with(repo: Repo, log_cache: Option<PathBuf>) -> Result<Arc<Self>> {
         let repo = Arc::new(repo);
+        let log = match log_cache {
+            Some(dir) => {
+                let root = repo.root().to_path_buf();
+                match tokio::task::spawn_blocking(move || LogIndex::open(&dir, &root)).await? {
+                    Ok(index) => {
+                        let (tx, _) = watch::channel(index.status());
+                        Some(Arc::new(LogDriver {
+                            index: Arc::new(index),
+                            notify: Notify::new(),
+                            cancel: CancelToken::new(),
+                            tx,
+                        }))
+                    }
+                    Err(e) => {
+                        tracing::warn!("commit index unavailable: {e}");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
 
         let state = Arc::new(RefreshState {
             notify: Notify::new(),
@@ -92,6 +131,7 @@ impl RepoSession {
             net_lock: Mutex::new(()),
             state,
             tx,
+            log,
             _watcher: watcher,
         });
         session.refresh_now().await?;
@@ -99,6 +139,9 @@ impl RepoSession {
             Arc::downgrade(&session),
             session.state.clone(),
         ));
+        if let Some(log) = &session.log {
+            tokio::spawn(log_loop(log.clone(), session.repo.clone()));
+        }
         Ok(session)
     }
 
@@ -130,6 +173,10 @@ impl RepoSession {
         let repo = self.repo.clone();
         let snap = Arc::new(tokio::task::spawn_blocking(move || repo.snapshot()).await??);
         self.publish(seq, snap.clone());
+        // Refs may have moved; the index update is a no-op when they did not.
+        if let Some(log) = &self.log {
+            log.notify.notify_one();
+        }
         Ok(snap)
     }
 
@@ -206,10 +253,76 @@ impl RepoSession {
     }
 }
 
+impl RepoSession {
+    /// Current state of the commit index, `None` if this session has none.
+    pub fn log_status(&self) -> Option<LogStatus> {
+        self.log.as_ref().map(|l| l.tx.borrow().clone())
+    }
+
+    pub fn subscribe_log(&self) -> Option<watch::Receiver<LogStatus>> {
+        self.log.as_ref().map(|l| l.tx.subscribe())
+    }
+
+    fn log_index(&self) -> Result<Arc<LogIndex>> {
+        self.log
+            .as_ref()
+            .map(|l| l.index.clone())
+            .ok_or(CoreError::NoLogIndex)
+    }
+
+    /// Rows `start..start + count` of the Log.
+    pub async fn log_page(&self, start: u32, count: u32) -> Result<LogPage> {
+        let index = self.log_index()?;
+        Ok(tokio::task::spawn_blocking(move || index.page(start, count)).await??)
+    }
+
+    /// Row number of a commit in the Log.
+    pub async fn log_row_of(&self, oid: String) -> Result<Option<u32>> {
+        let index = self.log_index()?;
+        Ok(tokio::task::spawn_blocking(move || index.row_of(&oid)).await??)
+    }
+}
+
 impl Drop for RepoSession {
     fn drop(&mut self) {
         self.state.closed.store(true, Ordering::SeqCst);
         self.state.notify.notify_one();
+        if let Some(log) = &self.log {
+            log.cancel.cancel();
+            log.notify.notify_one();
+        }
+    }
+}
+
+/// Runs index updates one at a time; requests that arrive meanwhile collapse
+/// into a single follow-up run.
+async fn log_loop(log: Arc<LogDriver>, repo: Arc<Repo>) {
+    loop {
+        log.notify.notified().await;
+        if log.cancel.is_cancelled() {
+            return;
+        }
+        let l = log.clone();
+        let repo = repo.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            l.index.update(&repo, &l.cancel, &|status| {
+                l.tx.send_if_modified(|cur| {
+                    if *cur == status {
+                        false
+                    } else {
+                        *cur = status;
+                        true
+                    }
+                });
+            })
+        })
+        .await;
+        match result {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) if e.is_cancelled() => {}
+            Ok(Err(e)) => tracing::warn!("commit index update failed: {e}"),
+            Err(e) => tracing::warn!("commit index update panicked: {e}"),
+        }
     }
 }
 

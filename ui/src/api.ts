@@ -2,9 +2,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AskRequest } from "./bindings/AskRequest";
-import type { CommitSummary } from "./bindings/CommitSummary";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileDiff } from "./bindings/FileDiff";
+import type { LogPage } from "./bindings/LogPage";
+import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
@@ -46,7 +47,10 @@ export const api = {
   lastCommitMessage: (root: string) => invoke<string>("last_commit_message", { root }),
   diffFile: (root: string, path: string, mode: DiffMode, untracked: boolean) =>
     invoke<FileDiff>("diff_file", { root, path, mode, untracked }),
-  log: (root: string, limit: number) => invoke<CommitSummary[]>("log", { root, limit }),
+  logStatus: (root: string) => invoke<LogStatus>("log_status", { root }),
+  logPage: (root: string, start: number, count: number) =>
+    invoke<LogPage>("log_page", { root, start, count }),
+  logRowOf: (root: string, oid: string) => invoke<number | null>("log_row_of", { root, oid }),
   checkoutBranch: (root: string, name: string, remote: boolean) =>
     invoke<void>("checkout_branch", { root, name, remote }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>
@@ -82,4 +86,8 @@ export function onSnapshot(
   return listen<{ root: string; snapshot: RepoSnapshot }>("repo-snapshot", (e) =>
     cb(e.payload.root, e.payload.snapshot),
   );
+}
+
+export function onLogStatus(cb: (status: LogStatus) => void): Promise<UnlistenFn> {
+  return listen<LogStatus>("log-status", (e) => cb(e.payload));
 }

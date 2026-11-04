@@ -1,31 +1,35 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
-interface Props<T> {
-  items: T[];
+interface RowsProps {
+  /** Number of rows; rows need not be loaded to be counted. */
+  count: number;
   rowHeight: number;
-  render: (item: T, index: number) => ReactNode;
+  renderRow: (index: number) => ReactNode;
   className?: string;
   overscan?: number;
   /** Keep this row visible (e.g. keyboard selection). */
   scrollToIndex?: number | null;
   onKeyDown?: (e: KeyboardEvent<HTMLDivElement>) => void;
   tabIndex?: number;
+  /** Rows currently on screen, `[start, end)`, reported when they change. */
+  onRangeChange?: (start: number, end: number) => void;
 }
 
 /**
- * Fixed-row-height virtual list. Uses spacer elements (not absolute rows) so
- * the content can grow horizontally for long lines (diffs).
+ * Fixed-row-height virtual list over a row count. Uses spacer elements (not
+ * absolute rows) so the content can grow horizontally for long lines (diffs).
  */
-export function VirtualList<T>({
-  items,
+export function VirtualRows({
+  count,
   rowHeight,
-  render,
+  renderRow,
   className,
   overscan = 12,
   scrollToIndex,
   onKeyDown,
   tabIndex,
-}: Props<T>) {
+  onRangeChange,
+}: RowsProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
@@ -48,11 +52,17 @@ export function VirtualList<T>({
       el.scrollTop = top + rowHeight - el.clientHeight;
   }, [scrollToIndex, rowHeight]);
 
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const end = Math.min(items.length, Math.ceil((scrollTop + height) / rowHeight) + overscan);
+  const visStart = Math.min(count, Math.floor(scrollTop / rowHeight));
+  const visEnd = Math.min(count, Math.ceil((scrollTop + height) / rowHeight));
+  useEffect(() => {
+    onRangeChange?.(visStart, visEnd);
+  }, [visStart, visEnd, onRangeChange]);
+
+  const start = Math.max(0, visStart - overscan);
+  const end = Math.min(count, visEnd + overscan);
 
   const rows: ReactNode[] = [];
-  for (let i = start; i < end; i++) rows.push(render(items[i], i));
+  for (let i = start; i < end; i++) rows.push(renderRow(i));
 
   return (
     <div
@@ -65,8 +75,18 @@ export function VirtualList<T>({
       <div className="vlist-inner">
         <div style={{ height: start * rowHeight }} />
         {rows}
-        <div style={{ height: (items.length - end) * rowHeight }} />
+        <div style={{ height: (count - end) * rowHeight }} />
       </div>
     </div>
   );
+}
+
+interface ListProps<T> extends Omit<RowsProps, "count" | "renderRow"> {
+  items: T[];
+  render: (item: T, index: number) => ReactNode;
+}
+
+/** [`VirtualRows`] over an in-memory array. */
+export function VirtualList<T>({ items, render, ...rest }: ListProps<T>) {
+  return <VirtualRows count={items.length} renderRow={(i) => render(items[i], i)} {...rest} />;
 }

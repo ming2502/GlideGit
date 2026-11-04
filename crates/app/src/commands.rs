@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use glide_core::{CoreError, RepoSession};
-use glide_git_backend::{CommitSummary, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
+use glide_core::{CoreError, LogPage, LogStatus, RepoSession};
+use glide_git_backend::{DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -12,6 +12,8 @@ use crate::AppState;
 
 /// Event carrying a fresh snapshot whenever a repository changes.
 pub const SNAPSHOT_EVENT: &str = "repo-snapshot";
+/// Event carrying the commit index status ([`LogStatus`]) as it changes.
+pub const LOG_STATUS_EVENT: &str = "log-status";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,11 +83,12 @@ pub async fn open_repo(
         let mut rx = session.subscribe();
         rx.borrow_and_update();
         let root = root.clone();
+        let snapshot_app = app.clone();
         tauri::async_runtime::spawn(async move {
             while rx.changed().await.is_ok() {
                 let snap = rx.borrow_and_update().clone();
                 if let Some(snapshot) = snap {
-                    let _ = app.emit(
+                    let _ = snapshot_app.emit(
                         SNAPSHOT_EVENT,
                         SnapshotEvent {
                             root: &root,
@@ -95,6 +98,16 @@ pub async fn open_repo(
                 }
             }
         });
+
+        if let Some(mut rx) = session.subscribe_log() {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                while rx.changed().await.is_ok() {
+                    let status = rx.borrow_and_update().clone();
+                    let _ = app.emit(LOG_STATUS_EVENT, status);
+                }
+            });
+        }
     }
 
     match session.snapshot() {
@@ -177,13 +190,31 @@ pub async fn diff_file(
 }
 
 #[tauri::command]
-pub async fn log(
+pub async fn log_status(state: State<'_, AppState>, root: String) -> CmdResult<LogStatus> {
+    let s = session(&state, &root).await?;
+    s.log_status().ok_or_else(|| CoreError::NoLogIndex.into())
+}
+
+#[tauri::command]
+pub async fn log_page(
     state: State<'_, AppState>,
     root: String,
-    limit: usize,
-) -> CmdResult<Vec<CommitSummary>> {
+    start: u32,
+    count: u32,
+) -> CmdResult<LogPage> {
     let s = session(&state, &root).await?;
-    Ok(s.read(move |r| r.log(None, limit)).await?)
+    // Pages are small; a runaway request must not stall the UI.
+    Ok(s.log_page(start, count.min(2000)).await?)
+}
+
+#[tauri::command]
+pub async fn log_row_of(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+) -> CmdResult<Option<u32>> {
+    let s = session(&state, &root).await?;
+    Ok(s.log_row_of(oid).await?)
 }
 
 #[tauri::command]

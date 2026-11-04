@@ -211,8 +211,7 @@ impl GitCli {
         }
     }
 
-    /// Run git and return the output whatever the exit code.
-    pub fn run_unchecked(&self, cwd: &Path, args: &[&str], opts: RunOptions) -> Result<GitOutput> {
+    fn command(&self, cwd: &Path, args: &[&str], opts: &RunOptions) -> Command {
         let mut cmd = Command::new(&self.exe);
         cmd.current_dir(cwd)
             .args(GLOBAL_ARGS)
@@ -249,6 +248,12 @@ impl GitCli {
             cmd.process_group(0);
         }
 
+        cmd
+    }
+
+    /// Run git and return the output whatever the exit code.
+    pub fn run_unchecked(&self, cwd: &Path, args: &[&str], opts: RunOptions) -> Result<GitOutput> {
+        let mut cmd = self.command(cwd, args, &opts);
         let mut child = cmd.spawn()?;
 
         // Feed stdin and drain stdout/stderr on helper threads to avoid pipe deadlocks.
@@ -299,6 +304,70 @@ impl GitCli {
             stderr,
             code: status.code(),
         })
+    }
+}
+
+impl GitCli {
+    /// Run git and hand its stdout to `on_stdout` chunk by chunk as it arrives,
+    /// for output too large to buffer (`git log` over a whole repository).
+    ///
+    /// Returning `false` from the callback stops git early; that is not an error.
+    /// A non-zero exit after the output was fully read is reported as
+    /// [`GitError::Failed`].
+    pub fn run_streaming(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        opts: RunOptions,
+        mut on_stdout: impl FnMut(&[u8]) -> bool,
+    ) -> Result<()> {
+        let mut cmd = self.command(cwd, args, &opts);
+        let mut child = cmd.spawn()?;
+        let stdin_thread = match (opts.stdin, child.stdin.take()) {
+            (Some(data), Some(mut pipe)) => Some(thread::spawn(move || {
+                let _ = pipe.write_all(&data);
+            })),
+            _ => None,
+        };
+        let stderr_thread = child.stderr.take().map(spawn_reader);
+        let mut stdout = child.stdout.take().expect("stdout is piped");
+
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            if opts.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                kill_tree(&mut child);
+                return Err(GitError::Cancelled);
+            }
+            let n = match stdout.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    kill_tree(&mut child);
+                    return Err(e.into());
+                }
+            };
+            if !on_stdout(&buf[..n]) {
+                kill_tree(&mut child);
+                return Ok(());
+            }
+        }
+        let status = child.wait()?;
+        if let Some(t) = stdin_thread {
+            let _ = t.join();
+        }
+        let stderr = stderr_thread
+            .map(|t| t.join().unwrap_or_default())
+            .unwrap_or_default();
+        if status.success() {
+            Ok(())
+        } else {
+            Err(GitError::Failed {
+                command: format!("git {}", args.join(" ")),
+                code: status.code(),
+                message: clean_stderr(&String::from_utf8_lossy(&stderr)),
+            })
+        }
     }
 }
 

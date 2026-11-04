@@ -620,6 +620,42 @@ input {
   color: var(--k-untracked);
   border-color: color-mix(in srgb, var(--k-untracked) 50%, transparent);
 }
+.log-view > .empty {
+  flex: 1;
+}
+.log-row.pending .placeholder {
+  display: block;
+  width: 40%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hover);
+}
+.log-foot {
+  flex: none;
+  height: 24px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border-strong);
+}
+.log-indexing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.log-indexing .spinner {
+  width: 10px;
+  height: 10px;
+}
+.log-error {
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .commit-details {
   flex: none;
   padding: 10px 12px;

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p ui && vite build",
     "typecheck": "tsc --noEmit -p ui",
-    "bindings": "cargo test -p glide-git-backend export_bindings",
+    "bindings": "cargo test --workspace export_bindings",
     "tauri": "tauri"
   },
   "dependencies": {

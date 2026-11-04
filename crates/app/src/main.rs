@@ -10,6 +10,7 @@ use std::sync::Arc;
 use glide_core::askpass::{self, AskpassServer};
 use glide_core::RepositoryManager;
 use glide_git_backend::GitCli;
+use tauri::Manager;
 
 pub struct AppState {
     pub manager: Arc<RepositoryManager>,
@@ -71,6 +72,13 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(move |app| {
+            match app.path().app_cache_dir() {
+                Ok(dir) => app
+                    .state::<AppState>()
+                    .manager
+                    .set_log_cache_dir(dir.join("log-index")),
+                Err(e) => tracing::warn!("no cache directory, Log index disabled: {e}"),
+            }
             bridge.attach(app.handle().clone());
             if let Some(server) = askpass_server {
                 let handler = bridge.handler();
@@ -94,7 +102,9 @@ fn main() {
             commands::commit,
             commands::last_commit_message,
             commands::diff_file,
-            commands::log,
+            commands::log_status,
+            commands::log_page,
+            commands::log_row_of,
             commands::checkout_branch,
             commands::create_branch,
             commands::delete_branch,
