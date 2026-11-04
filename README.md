@@ -29,6 +29,7 @@ cargo test --workspace
 pnpm test             # 前端单元测试（vitest）
 pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
 cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log 索引基准
+cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   # 刷新耗时基准
 ```
 
 ## 快捷键（IntelliJ 预设）

@@ -2,6 +2,8 @@
 //! runtime should use `spawn_blocking` (see `glide-core`).
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::cli::{CancelToken, GitCli, ProgressSink, RunOptions};
 use crate::error::{GitError, Result};
@@ -18,7 +20,23 @@ pub struct Repo {
     cli: GitCli,
     root: PathBuf,
     git_dir: PathBuf,
+    /// Shared by all worktrees: refs, packed-refs, objects. Equals `git_dir`
+    /// except in linked worktrees.
+    common_dir: PathBuf,
+    /// Branch list from the last snapshot, reused while refs are unchanged.
+    branch_cache: Arc<Mutex<Option<BranchCache>>>,
 }
+
+#[derive(Debug)]
+struct BranchCache {
+    fingerprint: u64,
+    at: Instant,
+    branches: BranchList,
+}
+
+/// Re-read refs at least this often even if the fingerprint did not change
+/// (guards against coarse file timestamps).
+const REFS_MAX_AGE: Duration = Duration::from_secs(30);
 
 /// Text the diff editor cannot round-trip: invalid UTF-8, or a CR that does
 /// not start a CRLF (the editor would treat it as a line break).
@@ -27,6 +45,46 @@ fn is_lossy(d: &[u8]) -> bool {
         || d.iter()
             .enumerate()
             .any(|(i, &b)| b == b'\r' && d.get(i + 1) != Some(&b'\n'))
+}
+
+/// FNV-1a over bytes and file metadata.
+struct Fnv(u64);
+
+impl Default for Fnv {
+    fn default() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl Fnv {
+    fn bytes(&mut self, b: &[u8]) {
+        for &x in b {
+            self.0 ^= x as u64;
+            self.0 = self.0.wrapping_mul(0x0100_0000_01b3);
+        }
+        // Separator, so ("ab","c") and ("a","bc") differ.
+        self.0 = self.0.wrapping_mul(0x0100_0000_01b3) ^ 0xff;
+    }
+
+    fn meta(&mut self, path: &Path) {
+        let Ok(m) = std::fs::metadata(path) else {
+            self.bytes(b"-");
+            return;
+        };
+        let mtime = m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        self.bytes(&mtime.to_le_bytes());
+        self.bytes(&m.len().to_le_bytes());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            self.bytes(&m.ino().to_le_bytes());
+        }
+    }
 }
 
 /// Where one side of a file comparison comes from.
@@ -126,11 +184,90 @@ impl Repo {
         let (Some(root), Some(git_dir)) = (lines.next(), lines.next()) else {
             return Err(GitError::NotARepository(path.display().to_string()));
         };
+        let git_dir = PathBuf::from(git_dir);
+        // `--path-format` needs git 2.31; older git: assume no linked worktree.
+        let common_dir = cli
+            .run(
+                path,
+                &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+                RunOptions::read(),
+            )
+            .ok()
+            .map(|o| PathBuf::from(o.stdout_str().trim()))
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| git_dir.clone());
         Ok(Self {
             cli,
             root: PathBuf::from(root),
-            git_dir: PathBuf::from(git_dir),
+            git_dir,
+            common_dir,
+            branch_cache: Arc::default(),
         })
+    }
+
+    /// A cheap fingerprint of every ref, HEAD and the HEAD reflog, from file
+    /// metadata only (no git process). Equal fingerprints mean no ref moved,
+    /// so branch lists and the commit index need not be re-read.
+    ///
+    /// Covers loose refs, `packed-refs` and reftable; ref updates replace the
+    /// file (new inode / timestamp), so even same-length rewrites show up.
+    pub fn refs_fingerprint(&self) -> u64 {
+        let mut h = Fnv::default();
+        // HEAD's content (branch name or detached id), per worktree.
+        h.bytes(&std::fs::read(self.git_dir.join("HEAD")).unwrap_or_default());
+        h.meta(&self.git_dir.join("logs").join("HEAD"));
+        h.meta(&self.common_dir.join("packed-refs"));
+        h.meta(&self.common_dir.join("reftable").join("tables.list"));
+        fn walk(dir: &Path, h: &mut Fnv) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            let mut entries: Vec<_> = entries.flatten().collect();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
+                let p = e.path();
+                h.bytes(p.as_os_str().as_encoded_bytes());
+                match e.file_type() {
+                    Ok(t) if t.is_dir() => walk(&p, h),
+                    _ => h.meta(&p),
+                }
+            }
+        }
+        walk(&self.common_dir.join("refs"), &mut h);
+        h.0
+    }
+
+    /// [`Repo::branches`], reused while [`Repo::refs_fingerprint`] is unchanged.
+    fn branches_cached(&self) -> Result<BranchList> {
+        let fingerprint = self.refs_fingerprint();
+        {
+            let cache = self.branch_cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(c) = cache.as_ref() {
+                if c.fingerprint == fingerprint && c.at.elapsed() < REFS_MAX_AGE {
+                    return Ok(c.branches.clone());
+                }
+            }
+        }
+        let list = self.branches()?;
+        *self.branch_cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(BranchCache {
+            fingerprint,
+            at: Instant::now(),
+            branches: list.clone(),
+        });
+        Ok(list)
+    }
+
+    /// Write a commit-graph with changed-path Bloom filters if the repository
+    /// has none. Speeds up `git log` in topological order (the first screen of
+    /// the Log) and path filters a lot. It is a cache file under
+    /// `objects/info`, the same one `git gc` / `git maintenance` write.
+    pub fn ensure_commit_graph(&self) -> Result<bool> {
+        let info = self.common_dir.join("objects").join("info");
+        if info.join("commit-graph").is_file() || info.join("commit-graphs").is_dir() {
+            return Ok(false);
+        }
+        self.write(&["commit-graph", "write", "--reachable", "--changed-paths"])?;
+        Ok(true)
     }
 
     /// `git init` a new repository and open it.
@@ -239,7 +376,7 @@ impl Repo {
 
     pub fn snapshot(&self) -> Result<RepoSnapshot> {
         let (head, changes) = self.status()?;
-        let branches = self.branches()?;
+        let branches = self.branches_cached()?;
         Ok(RepoSnapshot {
             root: self.root.to_string_lossy().into_owned(),
             head,

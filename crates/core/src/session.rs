@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use glide_git_backend::{CancelToken, GitCli, Repo, RepoSnapshot};
-use glide_log_index::{AuthorCount, LogFilter, LogIndex, LogPage, LogStatus};
+use glide_log_index::{
+    AuthorCount, IndexError, LogFilter, LogIndex, LogPage, LogStatus, UpdateKind,
+};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{watch, Mutex, Notify};
 
@@ -68,7 +70,12 @@ struct LogDriver {
     /// The filter the UI asked for last. Asking for a different one cancels
     /// work still running for the previous filter (typing in the search box).
     filter_job: StdMutex<(LogFilter, CancelToken)>,
+    /// Refs fingerprint at the last successful update, and when.
+    last_refs: StdMutex<Option<(u64, Instant)>>,
 }
+
+/// Update the commit index at least this often even when refs look unchanged.
+const LOG_MAX_AGE: Duration = Duration::from_secs(60);
 
 impl RepoSession {
     /// Open a repository, take the first snapshot and start watching it.
@@ -100,6 +107,7 @@ impl RepoSession {
                             cancel: CancelToken::new(),
                             tx,
                             filter_job: StdMutex::new((LogFilter::default(), CancelToken::new())),
+                            last_refs: StdMutex::new(None),
                         }))
                     }
                     Err(e) => {
@@ -332,9 +340,20 @@ async fn log_loop(log: Arc<LogDriver>, repo: Arc<Repo>) {
             return;
         }
         let l = log.clone();
-        let repo = repo.clone();
+        let r = repo.clone();
         let result = tokio::task::spawn_blocking(move || {
-            l.index.update(&repo, &l.cancel, &|status| {
+            // Most refreshes come from file edits; when no ref moved there is
+            // nothing to do (and no git process to start).
+            let fingerprint = r.refs_fingerprint();
+            let fresh = l
+                .last_refs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some_and(|(fp, at)| fp == fingerprint && at.elapsed() < LOG_MAX_AGE);
+            if fresh {
+                return Ok::<_, IndexError>(None);
+            }
+            let kind = l.index.update(&r, &l.cancel, &|status| {
                 l.tx.send_if_modified(|cur| {
                     if *cur == status {
                         false
@@ -343,10 +362,23 @@ async fn log_loop(log: Arc<LogDriver>, repo: Arc<Repo>) {
                         true
                     }
                 });
-            })
+            })?;
+            *l.last_refs.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((fingerprint, Instant::now()));
+            Ok(Some(kind))
         })
         .await;
         match result {
+            Ok(Ok(Some(UpdateKind::Full))) => {
+                // First build done: add a commit-graph if the repo has none,
+                // so the next full walk and path filters are fast.
+                let repo = repo.clone();
+                tokio::task::spawn_blocking(move || match repo.ensure_commit_graph() {
+                    Ok(true) => tracing::info!("wrote commit-graph for {}", repo.root().display()),
+                    Ok(false) => {}
+                    Err(e) => tracing::info!("commit-graph not written: {e}"),
+                });
+            }
             Ok(Ok(_)) => {}
             Ok(Err(e)) if e.is_cancelled() => {}
             Ok(Err(e)) => tracing::warn!("commit index update failed: {e}"),

@@ -887,3 +887,94 @@ fn stash_selected_paths_literally() {
         ["a1.txt"]
     );
 }
+
+#[test]
+fn refs_fingerprint_tracks_ref_changes_only() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("one", false).unwrap();
+    let git = |args: &[&str]| {
+        repo.cli().run(root, args, RunOptions::write()).unwrap();
+    };
+
+    let fp = repo.refs_fingerprint();
+    assert_eq!(fp, repo.refs_fingerprint(), "stable");
+    write(root, "a.txt", "edited\n");
+    write(root, "new.txt", "x\n");
+    assert_eq!(fp, repo.refs_fingerprint(), "worktree edits do not count");
+
+    let mut seen = vec![fp];
+    let mut changed = |what: &str| {
+        let now = repo.refs_fingerprint();
+        assert!(!seen.contains(&now), "{what} must change the fingerprint");
+        seen.push(now);
+    };
+    git(&["branch", "feature"]);
+    changed("new branch");
+    git(&["tag", "-a", "v1", "-m", "v1"]);
+    changed("annotated tag");
+    git(&["switch", "-q", "feature"]);
+    changed("checkout");
+    git(&["commit", "-q", "--allow-empty", "-m", "two"]);
+    changed("commit");
+    git(&["pack-refs", "--all"]);
+    changed("pack-refs");
+    git(&["update-ref", "refs/heads/main", "HEAD"]);
+    changed("packed ref updated");
+
+    // The snapshot's branch list follows at once, despite the cache.
+    git(&["branch", "late"]);
+    let snap = repo.snapshot().unwrap();
+    assert!(snap.branches.local.iter().any(|b| b.name == "late"));
+    git(&["branch", "-D", "late"]);
+    let snap = repo.snapshot().unwrap();
+    assert!(!snap.branches.local.iter().any(|b| b.name == "late"));
+}
+
+#[test]
+fn commit_graph_is_written_once() {
+    let (dir, repo) = new_repo();
+    write(dir.path(), "a.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("one", false).unwrap();
+    assert!(repo.ensure_commit_graph().unwrap());
+    assert!(!repo.ensure_commit_graph().unwrap(), "already there");
+}
+
+#[test]
+fn refs_fingerprint_in_linked_worktree() {
+    let (dir, repo) = new_repo();
+    write(dir.path(), "a.txt", "1\n");
+    repo.stage_all().unwrap();
+    repo.commit("one", false).unwrap();
+    let wt_dir = tempfile::tempdir().unwrap();
+    let wt_path = wt_dir.path().join("wt");
+    repo.cli()
+        .run(
+            dir.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "side",
+                wt_path.to_str().unwrap(),
+            ],
+            RunOptions::write(),
+        )
+        .unwrap();
+    let wt = Repo::open(cli(), &wt_path).unwrap();
+    let fp = wt.refs_fingerprint();
+    // A commit on main, made in the main worktree, moves a shared ref.
+    repo.cli()
+        .run(
+            dir.path(),
+            &["commit", "-q", "--allow-empty", "-m", "two"],
+            RunOptions::write(),
+        )
+        .unwrap();
+    assert_ne!(fp, wt.refs_fingerprint());
+    assert_eq!(wt.snapshot().unwrap().head.branch.as_deref(), Some("side"));
+}

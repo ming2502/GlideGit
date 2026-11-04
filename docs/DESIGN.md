@@ -85,7 +85,7 @@ Worktree、Submodule、Git LFS、GitHub/GitLab 集成（PR、Review、CI 状态�
 ### 3.1 Git 后端：读写分离
 
 - **写操作走系统 git CLI**（commit / merge / rebase / push / pull / checkout 等）：hooks、credential helper、GPG/SSH 签名、LFS、用户 `.gitconfig` 100% 兼容。IDEA 采用同样策略。
-- **高频读操作走 gitoxide (gix)**（status、revwalk、对象读取、diff、blame）：零进程开销、无需文本解析。M1 阶段先全部走 CLI（`--porcelain=v2 -z` 等机器可读格式），M2 起逐步把热点读路径迁到 gix，通过 `GitBackend` trait 隔离实现。
+- **读操作同样走 CLI，只用机器可读格式**（`--porcelain=v2 -z`、`--format` 加 NUL 分隔），重点是减少进程数。M2-10 在大仓库上对比了 gitoxide (gix)：status、引用读取、遍历提交的速度都与 git 持平，只省下启动进程的开销，却会带来编译时间、体积和行为差异，所以没有引入。改为用 refs 指纹（只做文件 `stat`）判断引用是否变化，没变就复用分支列表、跳过 Log 索引更新，编辑文件触发的刷新只需 1 个 `git status` 进程。gix 留作以后的选项，例如 blame 或 Windows 上进程开销特别大的场景。
 - Windows 优先使用系统 git，缺失时可使用随包 MinGit。
 
 ---
@@ -107,7 +107,7 @@ Worktree、Submodule、Git LFS、GitHub/GitLab 集成（PR、Review、CI 状态�
 │ RepositoryManager ── 每仓库一个 RepoActor（权威状态 + 串行写队列）                 │
 │  ├─ TaskScheduler  读并发 / 写串行 / 可取消 / 优先级                                │
 │  ├─ GitCli         进程执行、环境注入、进度解析、askpass 回调                        │
-│  ├─ GixReader      status / revwalk / tree diff / blame（M2+）                      │
+│  ├─ RefsFingerprint 引用变化检测（只做 stat，不启动进程）                           │
 │  ├─ LogIndex       持久化提交索引 + 图布局（lane）增量计算                           │
 │  ├─ DiffEngine     imara-diff + 字符级 diff + 三方合并                              │
 │  ├─ Watcher        notify，过滤 + 去抖，区分 worktree / index / refs                 │
