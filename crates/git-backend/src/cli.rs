@@ -106,19 +106,23 @@ impl GitCli {
         if let Some(exe) = std::env::var_os("GLIDEGIT_GIT") {
             return Self::with_executable(exe);
         }
+        // `cfg!()` (not `#[cfg]`) so every platform compiles and lints the same code.
         let mut candidates: Vec<PathBuf> = Vec::new();
-        #[cfg(target_os = "macos")]
-        candidates.extend(
-            ["/opt/homebrew/bin/git", "/usr/local/bin/git"]
-                .iter()
-                .map(PathBuf::from)
-                .filter(|p| p.is_file()),
-        );
+        if cfg!(target_os = "macos") {
+            candidates.extend(
+                ["/opt/homebrew/bin/git", "/usr/local/bin/git"]
+                    .iter()
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_file()),
+            );
+        }
         candidates.push(PathBuf::from("git"));
-        #[cfg(windows)]
-        candidates.push(PathBuf::from(r"C:\Program Files\Git\cmd\git.exe"));
-        #[cfg(target_os = "macos")]
-        candidates.push(PathBuf::from("/usr/bin/git"));
+        if cfg!(windows) {
+            candidates.push(PathBuf::from(r"C:\Program Files\Git\cmd\git.exe"));
+        }
+        if cfg!(target_os = "macos") {
+            candidates.push(PathBuf::from("/usr/bin/git"));
+        }
 
         let mut last_err = GitError::GitNotFound("git".into());
         for c in candidates {
