@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { api, errorMessage, type PullMode } from "../api";
+import { api, errorMessage, isCancelled, type PullMode } from "../api";
+import type { Progress } from "../bindings/Progress";
 import type { DiffMode } from "../bindings/DiffMode";
 import type { FileChange } from "../bindings/FileChange";
 import type { FileDiff } from "../bindings/FileDiff";
@@ -18,6 +19,11 @@ export interface Toast {
 export interface Task {
   id: number;
   title: string;
+  startedAt: number;
+  /** Remote tasks report git progress and can be cancelled. */
+  cancellable: boolean;
+  cancelling?: boolean;
+  progress?: Progress;
 }
 
 export interface ConfirmRequest {
@@ -44,6 +50,7 @@ interface RepoState {
   toasts: Toast[];
   branchPopup: boolean;
   confirm: ConfirmRequest | null;
+  pushDialog: boolean;
   pullMode: PullMode;
   logVersion: number;
 
@@ -55,6 +62,15 @@ interface RepoState {
   reloadDiff: () => Promise<void>;
   setIncluded: (changes: FileChange[], include: boolean) => Promise<void>;
   runTask: <T>(title: string, fn: (root: string) => Promise<T>, success?: string) => Promise<T | undefined>;
+  /** Like runTask, but passes a task id for progress events and cancellation. */
+  runRemote: (
+    title: string,
+    fn: (root: string, taskId: number) => Promise<void>,
+    success?: string,
+  ) => Promise<boolean>;
+  setTaskProgress: (taskId: number, progress: Progress) => void;
+  cancelTask: (taskId: number) => void;
+  setPushDialog: (open: boolean) => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
@@ -85,6 +101,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   toasts: [],
   branchPopup: false,
   confirm: null,
+  pushDialog: false,
   pullMode: load<PullMode>("pullMode", "merge"),
   logVersion: 0,
 
@@ -178,7 +195,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     const root = get().root;
     if (!root) return undefined;
     const id = ++seq;
-    set((s) => ({ tasks: [...s.tasks, { id, title }] }));
+    set((s) => ({ tasks: [...s.tasks, { id, title, startedAt: Date.now(), cancellable: false }] }));
     try {
       const r = await fn(root);
       if (success) get().toast({ kind: "success", title: success });
@@ -190,6 +207,35 @@ export const useRepo = create<RepoState>((set, get) => ({
       set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
     }
   },
+
+  async runRemote(title, fn, success) {
+    const root = get().root;
+    if (!root) return false;
+    const id = ++seq;
+    set((s) => ({ tasks: [...s.tasks, { id, title, startedAt: Date.now(), cancellable: true }] }));
+    try {
+      await fn(root, id);
+      if (success) get().toast({ kind: "success", title: success });
+      return true;
+    } catch (e) {
+      if (isCancelled(e)) get().toast({ kind: "info", title: `${title}已取消` });
+      else get().toast({ kind: "error", title: `${title}失败`, detail: errorMessage(e) });
+      return false;
+    } finally {
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+    }
+  },
+
+  setTaskProgress(taskId, progress) {
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, progress } : t)) }));
+  },
+
+  cancelTask(taskId) {
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, cancelling: true } : t)) }));
+    void api.cancelTask(taskId);
+  },
+
+  setPushDialog: (pushDialog) => set({ pushDialog }),
 
   toast(t) {
     const id = ++seq;

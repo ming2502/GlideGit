@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, onSnapshot, type AppInfo } from "./api";
+import { api, onSnapshot, onTaskProgress, type AppInfo } from "./api";
 import { installKeyHandler, useActions } from "./actions/registry";
 import { ConfirmDialog, Toasts } from "./components/Overlays";
 import { load, save } from "./lib/storage";
@@ -9,6 +9,7 @@ import { pickRepository, StatusBar, Toolbar } from "./views/Chrome";
 import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
+import { PushDialog } from "./views/PushDialog";
 import { Welcome } from "./views/Welcome";
 
 export function App() {
@@ -21,6 +22,7 @@ export function App() {
   useEffect(() => {
     api.appInfo().then(setInfo).catch(() => {});
     const un = onSnapshot((r, s) => useRepo.getState().applySnapshot(r, s));
+    const unProgress = onTaskProgress((id, p) => useRepo.getState().setTaskProgress(id, p));
     // Diff content can change without a status change; refresh when coming back.
     const onFocus = () => {
       const st = useRepo.getState();
@@ -29,6 +31,7 @@ export function App() {
     window.addEventListener("focus", onFocus);
     return () => {
       void un.then((f) => f());
+      void unProgress.then((f) => f());
       window.removeEventListener("focus", onFocus);
     };
   }, []);
@@ -61,7 +64,7 @@ export function App() {
       id: "git.fetch",
       title: "Fetch",
       enabled: () => !!useRepo.getState().root,
-      run: () => void useRepo.getState().runTask("Fetch", (r) => api.fetch(r), "Fetch 完成"),
+      run: () => void useRepo.getState().runRemote("Fetch", (r, id) => api.fetch(r, id), "Fetch 完成"),
     },
     {
       id: "git.pull",
@@ -70,15 +73,15 @@ export function App() {
       enabled: () => !!useRepo.getState().root,
       run: () => {
         const st = useRepo.getState();
-        void st.runTask("Pull", (r) => api.pull(r, st.pullMode), "已更新到最新");
+        void st.runRemote("Pull", (r, id) => api.pull(r, st.pullMode, id), "已更新到最新");
       },
     },
     {
       id: "git.push",
-      title: "Push",
+      title: "Push…",
       keys: ["mod+shift+k"],
       enabled: () => !!useRepo.getState().root,
-      run: () => void useRepo.getState().runTask("推送", (r) => api.push(r, false), "推送成功"),
+      run: () => useRepo.getState().setPushDialog(true),
     },
   ]);
 
@@ -94,6 +97,7 @@ export function App() {
       )}
       <StatusBar gitVersion={info?.gitVersion ?? ""} />
       <BranchPopup />
+      <PushDialog />
       <ConfirmDialog />
       <Toasts />
     </div>

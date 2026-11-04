@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::cli::{CancelToken, GitCli, RunOptions};
+use crate::cli::{CancelToken, GitCli, ProgressSink, RunOptions};
 use crate::error::{GitError, Result};
 use crate::model::*;
 use crate::parse;
@@ -392,53 +392,130 @@ impl Repo {
 
     // --------------------------------------------------------------- network
 
-    pub fn fetch(&self, cancel: Option<CancelToken>) -> Result<()> {
-        let mut opts = RunOptions::write();
-        opts.cancel = cancel;
-        self.cli
-            .run(&self.root, &["fetch", "--all", "--prune"], opts)?;
+    fn net_options(net: &NetOptions) -> RunOptions {
+        RunOptions {
+            cancel: net.cancel.clone(),
+            progress: net.progress.clone(),
+            ..RunOptions::write()
+        }
+    }
+
+    /// The remote a new branch is pushed to: `origin` if present, else the first one.
+    pub fn default_remote(&self) -> Result<Option<String>> {
+        let remotes = self.remotes()?;
+        Ok(if remotes.iter().any(|r| r == "origin") {
+            Some("origin".to_string())
+        } else {
+            remotes.into_iter().next()
+        })
+    }
+
+    pub fn fetch(&self, net: &NetOptions) -> Result<()> {
+        self.cli.run(
+            &self.root,
+            &["fetch", "--all", "--prune", "--progress"],
+            Self::net_options(net),
+        )?;
         Ok(())
     }
 
-    pub fn pull(&self, mode: PullMode, cancel: Option<CancelToken>) -> Result<()> {
+    pub fn pull(&self, mode: PullMode, net: &NetOptions) -> Result<()> {
         let flag = match mode {
             PullMode::Merge => "--no-rebase",
             PullMode::Rebase => "--rebase",
             PullMode::FastForwardOnly => "--ff-only",
         };
-        let mut opts = RunOptions::write();
-        opts.cancel = cancel;
-        self.cli
-            .run(&self.root, &["pull", "--no-edit", flag], opts)?;
+        self.cli.run(
+            &self.root,
+            &["pull", "--no-edit", "--progress", flag],
+            Self::net_options(net),
+        )?;
         Ok(())
     }
 
+    /// What a push of the current branch would send.
+    pub fn push_preview(&self, limit: usize) -> Result<PushPreview> {
+        let (head, _) = self.status()?;
+        let Some(branch) = head.branch.clone() else {
+            return Ok(PushPreview {
+                branch: None,
+                remote: None,
+                target: None,
+                new_branch: false,
+                commits: Vec::new(),
+                behind: 0,
+            });
+        };
+        if let Some(upstream) = head.upstream.clone() {
+            let range = format!("{upstream}..HEAD");
+            let commits = if head.oid.is_some() {
+                self.log(Some(&range), limit)?
+            } else {
+                Vec::new()
+            };
+            let remote = upstream.split_once('/').map(|(r, _)| r.to_string());
+            return Ok(PushPreview {
+                branch: Some(branch),
+                remote,
+                target: Some(upstream),
+                new_branch: false,
+                commits,
+                behind: head.behind,
+            });
+        }
+        let remote = self.default_remote()?;
+        // No upstream yet: everything not already on some remote will be sent.
+        let commits = if head.oid.is_some() {
+            let n = format!("-n{limit}");
+            let text = self.read(&[
+                "log",
+                crate::parse::LOG_FORMAT,
+                "--decorate=short",
+                &n,
+                "HEAD",
+                "--not",
+                "--remotes",
+                "--",
+            ])?;
+            crate::parse::parse_log(&text)
+        } else {
+            Vec::new()
+        };
+        Ok(PushPreview {
+            target: remote.as_ref().map(|r| format!("{r}/{branch}")),
+            branch: Some(branch),
+            remote,
+            new_branch: true,
+            commits,
+            behind: 0,
+        })
+    }
+
     /// Push the current branch; sets upstream on first push.
-    pub fn push(&self, force_with_lease: bool, cancel: Option<CancelToken>) -> Result<()> {
+    pub fn push(&self, force_with_lease: bool, net: &NetOptions) -> Result<()> {
         let (head, _) = self.status()?;
         let branch = head
             .branch
             .ok_or_else(|| GitError::Invalid("cannot push a detached HEAD".into()))?;
-        let mut args: Vec<String> = vec!["push".into()];
+        let mut args: Vec<String> = vec!["push".into(), "--progress".into()];
         if force_with_lease {
             args.push("--force-with-lease".into());
         }
         if head.upstream.is_none() {
-            let remotes = self.remotes()?;
-            let remote = if remotes.iter().any(|r| r == "origin") {
-                "origin".to_string()
-            } else {
-                remotes
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| GitError::Invalid("no remote configured".into()))?
-            };
+            let remote = self
+                .default_remote()?
+                .ok_or_else(|| GitError::Invalid("no remote configured".into()))?;
             args.extend(["--set-upstream".into(), remote, branch]);
         }
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let mut opts = RunOptions::write();
-        opts.cancel = cancel;
-        self.cli.run(&self.root, &refs, opts)?;
+        self.cli.run(&self.root, &refs, Self::net_options(net))?;
         Ok(())
     }
+}
+
+/// Cancellation and progress reporting for network operations.
+#[derive(Clone, Debug, Default)]
+pub struct NetOptions {
+    pub cancel: Option<CancelToken>,
+    pub progress: Option<ProgressSink>,
 }

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use glide_core::{CoreError, RepoSession};
-use glide_git_backend::{CommitSummary, DiffMode, FileDiff, PullMode, RepoSnapshot};
+use glide_git_backend::{CommitSummary, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -224,28 +224,60 @@ pub async fn delete_branch(
 }
 
 #[tauri::command]
-pub async fn fetch(state: State<'_, AppState>, root: String) -> CmdResult<()> {
+pub async fn fetch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    task_id: u64,
+) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(|r| r.fetch(None)).await?)
+    let task = state.tasks.start(task_id);
+    let net = task.net_options(&app);
+    Ok(s.remote(false, move |r| r.fetch(&net)).await?)
 }
 
 #[tauri::command]
-pub async fn pull(state: State<'_, AppState>, root: String, mode: PullModeArg) -> CmdResult<()> {
+pub async fn pull(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    mode: PullModeArg,
+    task_id: u64,
+) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     let mode = match mode {
         PullModeArg::Merge => PullMode::Merge,
         PullModeArg::Rebase => PullMode::Rebase,
         PullModeArg::FfOnly => PullMode::FastForwardOnly,
     };
-    Ok(s.write(move |r| r.pull(mode, None)).await?)
+    let task = state.tasks.start(task_id);
+    let net = task.net_options(&app);
+    Ok(s.remote(true, move |r| r.pull(mode, &net)).await?)
 }
 
 #[tauri::command]
 pub async fn push(
+    app: AppHandle,
     state: State<'_, AppState>,
     root: String,
     force_with_lease: bool,
+    task_id: u64,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.push(force_with_lease, None)).await?)
+    let task = state.tasks.start(task_id);
+    let net = task.net_options(&app);
+    Ok(s.remote(false, move |r| r.push(force_with_lease, &net))
+        .await?)
+}
+
+#[tauri::command]
+pub async fn push_preview(state: State<'_, AppState>, root: String) -> CmdResult<PushPreview> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(|r| r.push_preview(500)).await?)
+}
+
+/// Request cancellation of a running task. Returns false if it already finished.
+#[tauri::command]
+pub fn cancel_task(state: State<'_, AppState>, task_id: u64) -> bool {
+    state.tasks.cancel(task_id)
 }

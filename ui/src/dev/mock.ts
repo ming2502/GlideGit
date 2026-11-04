@@ -1,5 +1,6 @@
 // Browser preview mode: when the UI runs outside Tauri (`pnpm dev` in a normal
 // browser), IPC is served from this in-memory fake repository. Dev-only.
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Branch } from "../bindings/Branch";
 import type { CommitSummary } from "../bindings/CommitSummary";
@@ -105,6 +106,24 @@ function diffFor(path: string): FileDiff {
   };
 }
 
+const cancelled = new Set<number>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Simulate a network op: emit git-like progress, honour cancellation. */
+async function fakeRemote(taskId: number, phases: string[]): Promise<null> {
+  for (const phase of phases) {
+    for (let pct = 0; pct <= 100; pct += 4) {
+      if (cancelled.has(taskId)) throw { kind: "cancelled", message: "operation cancelled" };
+      await emit("task-progress", {
+        taskId,
+        progress: { phase, percent: pct, detail: `(${pct * 12}/1200), ${(pct * 0.05).toFixed(2)} MiB | 1.20 MiB/s` },
+      });
+      await sleep(70);
+    }
+  }
+  return null;
+}
+
 export function installMock(): void {
   mockWindows("main");
   mockIPC((cmd, args) => {
@@ -112,6 +131,24 @@ export function installMock(): void {
     switch (cmd) {
       case "app_info":
         return { version: "0.1.0", gitVersion: "2.55.0 (mock)", platform: "macos" };
+      case "fetch":
+        return fakeRemote(a.taskId as number, ["Counting objects", "Receiving objects", "Resolving deltas"]);
+      case "pull":
+        return fakeRemote(a.taskId as number, ["Receiving objects", "Updating files"]);
+      case "push":
+        return fakeRemote(a.taskId as number, ["Compressing objects", "Writing objects"]);
+      case "cancel_task":
+        cancelled.add(a.taskId as number);
+        return true;
+      case "push_preview":
+        return {
+          branch: "feature/commit-panel",
+          remote: "origin",
+          target: "origin/feature/commit-panel",
+          newBranch: false,
+          commits: log.slice(0, 3),
+          behind: 1,
+        };
       case "plugin:dialog|open":
         return "/Users/demo/GlideGit";
       case "open_repo":

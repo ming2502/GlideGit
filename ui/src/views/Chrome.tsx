@@ -6,7 +6,7 @@ import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
 import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon } from "../components/Icons";
 import { repoName } from "../lib/format";
-import { useRepo } from "../stores/repo";
+import { useRepo, type Task } from "../stores/repo";
 
 export async function pickRepository(): Promise<void> {
   const dir = await open({ directory: true, multiple: false, title: "打开 Git 仓库" });
@@ -75,7 +75,7 @@ export function Toolbar() {
           <ChevronDown />
         </button>
       </span>
-      <button className="tb-icon" onClick={() => runAction("git.push")} title={`Push ${shortcutOf("git.push")}`}>
+      <button className="tb-icon" onClick={() => runAction("git.push")} title={`Push… ${shortcutOf("git.push")}`}>
         <PushIcon />
         {head.ahead > 0 && <span className="badge">{head.ahead}</span>}
       </button>
@@ -116,17 +116,65 @@ export function Toolbar() {
   );
 }
 
+function TaskProgress({ task }: { task: Task }) {
+  const cancel = useRepo((s) => s.cancelTask);
+  const p = task.progress;
+  const pct = p?.percent ?? null;
+  return (
+    <span className="sb-task">
+      <span className="spinner" />
+      <span className="sb-task-title">{task.title}</span>
+      {p && (
+        <span className="muted sb-task-phase">
+          {p.phase}
+          {pct != null ? ` ${pct}%` : p.detail ? ` ${p.detail}` : ""}
+        </span>
+      )}
+      {pct != null && (
+        <span className="progress" aria-hidden>
+          <span className="progress-fill" style={{ width: `${pct}%` }} />
+        </span>
+      )}
+      {task.cancellable && (
+        <button
+          className="sb-cancel"
+          disabled={task.cancelling}
+          title={task.cancelling ? "正在取消…" : "取消"}
+          onClick={() => cancel(task.id)}
+        >
+          {task.cancelling ? "取消中…" : "✕"}
+        </button>
+      )}
+    </span>
+  );
+}
+
 export function StatusBar({ gitVersion }: { gitVersion: string }) {
   const snapshot = useRepo((s) => s.snapshot);
   const tasks = useRepo((s) => s.tasks);
+  const [showAll, setShowAll] = useState(false);
   const head = snapshot?.head;
+  const latest = tasks[tasks.length - 1];
   return (
     <div className="statusbar">
-      {tasks.length > 0 ? (
-        <span className="sb-task">
-          <span className="spinner" /> {tasks[tasks.length - 1].title}…
-          {tasks.length > 1 && <span className="muted"> (+{tasks.length - 1})</span>}
-        </span>
+      {latest ? (
+        <>
+          <TaskProgress task={latest} />
+          {tasks.length > 1 && (
+            <button className="sb-more" onClick={() => setShowAll((v) => !v)}>
+              +{tasks.length - 1} 个任务
+            </button>
+          )}
+          {showAll && tasks.length > 1 && (
+            <div className="task-popover" onMouseLeave={() => setShowAll(false)}>
+              {tasks.map((t) => (
+                <div key={t.id} className="task-popover-row">
+                  <TaskProgress task={t} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         <span className="muted">{snapshot ? `${snapshot.changes.length} 个变更` : ""}</span>
       )}

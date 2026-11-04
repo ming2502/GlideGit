@@ -14,6 +14,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::error::{GitError, Result};
+use crate::model::Progress;
+use crate::parse::parse_progress_line;
 
 /// Cooperative cancellation flag shared between the caller and a running git process.
 #[derive(Clone, Debug, Default)]
@@ -31,6 +33,25 @@ impl CancelToken {
     }
 }
 
+/// Receives parsed `--progress` updates from a running git process.
+#[derive(Clone)]
+pub struct ProgressSink(Arc<dyn Fn(&Progress) + Send + Sync>);
+
+impl ProgressSink {
+    pub fn new(f: impl Fn(&Progress) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+    pub fn emit(&self, p: &Progress) {
+        (self.0)(p)
+    }
+}
+
+impl std::fmt::Debug for ProgressSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProgressSink")
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RunOptions {
     pub stdin: Option<Vec<u8>>,
@@ -38,6 +59,9 @@ pub struct RunOptions {
     pub timeout: Option<Duration>,
     /// Read-only commands set `GIT_OPTIONAL_LOCKS=0` so they never contend with writers.
     pub read_only: bool,
+    /// Parse stderr progress lines (`--progress`) and forward them here.
+    /// Progress lines are then left out of the captured stderr.
+    pub progress: Option<ProgressSink>,
 }
 
 impl RunOptions {
@@ -60,6 +84,10 @@ impl RunOptions {
     }
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+    pub fn progress(mut self, sink: ProgressSink) -> Self {
+        self.progress = Some(sink);
         self
     }
 }
@@ -213,6 +241,13 @@ impl GitCli {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
+        // Own process group, so cancelling also stops helpers git spawned
+        // (ssh, git-remote-https, hooks) instead of orphaning them.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
 
         let mut child = cmd.spawn()?;
 
@@ -224,7 +259,10 @@ impl GitCli {
             _ => None,
         };
         let stdout_thread = child.stdout.take().map(spawn_reader);
-        let stderr_thread = child.stderr.take().map(spawn_reader);
+        let stderr_thread = match opts.progress {
+            Some(sink) => child.stderr.take().map(|r| spawn_progress_reader(r, sink)),
+            None => child.stderr.take().map(spawn_reader),
+        };
 
         let status = if opts.cancel.is_none() && opts.timeout.is_none() {
             child.wait()?
@@ -235,13 +273,11 @@ impl GitCli {
                     break status;
                 }
                 if opts.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_tree(&mut child);
                     return Err(GitError::Cancelled);
                 }
                 if opts.timeout.is_some_and(|t| started.elapsed() > t) {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_tree(&mut child);
                     return Err(GitError::TimedOut);
                 }
                 thread::sleep(Duration::from_millis(4));
@@ -266,11 +302,67 @@ impl GitCli {
     }
 }
 
+/// Kill git and, on Unix, every process in its group. Reader threads are
+/// detached: a surviving grandchild could otherwise keep the pipes open.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: plain syscall; the group id is the child's pid (process_group(0)).
+        unsafe {
+            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn spawn_reader<R: Read + Send + 'static>(mut r: R) -> thread::JoinHandle<Vec<u8>> {
     thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = r.read_to_end(&mut buf);
         buf
+    })
+}
+
+/// Split stderr on `\r`/`\n` as it streams in; progress lines go to the sink,
+/// everything else is kept as the captured stderr.
+fn spawn_progress_reader<R: Read + Send + 'static>(
+    mut r: R,
+    sink: ProgressSink,
+) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut kept = Vec::new();
+        let mut line = Vec::new();
+        let mut buf = [0u8; 4096];
+        let handle = |line: &mut Vec<u8>, kept: &mut Vec<u8>| {
+            if line.is_empty() {
+                return;
+            }
+            let text = String::from_utf8_lossy(line);
+            match parse_progress_line(&text) {
+                Some(p) => sink.emit(&p),
+                None => {
+                    kept.extend_from_slice(line);
+                    kept.push(b'\n');
+                }
+            }
+            line.clear();
+        };
+        loop {
+            let n = match r.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            for &b in &buf[..n] {
+                if b == b'\r' || b == b'\n' {
+                    handle(&mut line, &mut kept);
+                } else {
+                    line.push(b);
+                }
+            }
+        }
+        handle(&mut line, &mut kept);
+        kept
     })
 }
 

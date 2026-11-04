@@ -943,3 +943,123 @@ input {
 .recent-item .muted {
   font-size: 11.5px;
 }
+
+/* ------------------------------------------------------- tasks/progress */
+.sb-task-title {
+  font-weight: 500;
+}
+.sb-task-phase {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress {
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.sb-cancel,
+.sb-more {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+.sb-cancel:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--danger);
+}
+.sb-more:hover {
+  background: var(--hover);
+}
+.task-popover {
+  position: fixed;
+  left: 8px;
+  bottom: 30px;
+  z-index: 55;
+  min-width: 420px;
+  padding: 6px;
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.task-popover-row {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+}
+
+/* ----------------------------------------------------------- push dialog */
+.push-dialog {
+  width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.push-dialog h3 {
+  margin: 0;
+}
+.push-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pill {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 18px;
+  background: color-mix(in srgb, var(--k-added) 18%, transparent);
+  color: var(--k-added);
+}
+.push-warn {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--k-untracked) 16%, transparent);
+}
+.push-commits {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.push-commit {
+  height: 28px;
+  display: grid;
+  grid-template-columns: 1fr 110px 90px 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+.push-commit + .push-commit {
+  border-top: 1px solid var(--border);
+}
+.push-commit > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.push-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+  color: var(--muted);
+}
+.error-text {
+  color: var(--danger);
+  white-space: pre-wrap;
+}

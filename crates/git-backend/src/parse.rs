@@ -196,6 +196,49 @@ pub fn parse_recent_branches(reflog: &str, local: &[Branch], limit: usize) -> Ve
 }
 
 // ---------------------------------------------------------------------------
+// --progress lines
+// ---------------------------------------------------------------------------
+
+/// Parses `[remote: ]<Phase>: [NN% ]<detail>[, done.]`. Returns `None` for
+/// anything that is not a progress line (errors, `To <url>`, ref updates…).
+pub fn parse_progress_line(line: &str) -> Option<Progress> {
+    let line = line.trim_end();
+    let line = line.strip_prefix("remote: ").unwrap_or(line).trim();
+    let (phase, rest) = line.split_once(": ")?;
+    // Phases are short capitalised phrases; rejects `error: …`, `fatal: …`, `hint: …`.
+    if phase.is_empty()
+        || phase.len() > 40
+        || !phase.starts_with(|c: char| c.is_ascii_uppercase())
+        || !phase.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
+    {
+        return None;
+    }
+    let rest = rest.trim();
+    let (percent, detail) = match rest.split_once('%') {
+        Some((num, after)) if !num.is_empty() && num.trim().chars().all(|c| c.is_ascii_digit()) => {
+            (num.trim().parse::<u8>().ok(), after.trim())
+        }
+        _ => {
+            // `Enumerating objects: 5, done.` — a count, no percentage.
+            if !rest.starts_with(|c: char| c.is_ascii_digit()) {
+                return None;
+            }
+            (None, rest)
+        }
+    };
+    let detail = detail
+        .trim_end_matches(", done.")
+        .trim_end_matches(", done")
+        .trim()
+        .to_string();
+    Some(Progress {
+        phase: phase.to_string(),
+        percent,
+        detail,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // git log
 // ---------------------------------------------------------------------------
 
@@ -415,6 +458,33 @@ pub fn synthesize_added(path: &str, content: &[u8], max_lines: usize) -> FileDif
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_lines() {
+        let p = parse_progress_line("Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s")
+            .unwrap();
+        assert_eq!(p.phase, "Receiving objects");
+        assert_eq!(p.percent, Some(45));
+        assert_eq!(p.detail, "(450/1000), 1.20 MiB | 2.00 MiB/s");
+
+        let p = parse_progress_line("remote: Counting objects: 100% (10/10), done.").unwrap();
+        assert_eq!(
+            (p.phase.as_str(), p.percent),
+            ("Counting objects", Some(100))
+        );
+        assert_eq!(p.detail, "(10/10)");
+
+        let p = parse_progress_line("Enumerating objects: 5, done.").unwrap();
+        assert_eq!((p.percent, p.detail.as_str()), (None, "5"));
+
+        assert!(
+            parse_progress_line("fatal: unable to access 'x': Could not resolve host").is_none()
+        );
+        assert!(parse_progress_line("error: failed to push some refs to 'origin'").is_none());
+        assert!(parse_progress_line("To github.com:a/b.git").is_none());
+        assert!(parse_progress_line(" * [new branch]      main -> main").is_none());
+        assert!(parse_progress_line("hint: Updates were rejected").is_none());
+    }
 
     #[test]
     fn status_v2_full() {

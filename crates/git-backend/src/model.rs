@@ -172,3 +172,33 @@ pub struct FileDiff {
     pub deleted: u32,
     pub hunks: Vec<DiffHunk>,
 }
+
+/// One parsed `--progress` update, e.g. `Receiving objects: 45% (450/1000), 1.2 MiB | 2 MiB/s`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Progress {
+    /// e.g. `Receiving objects`, `Writing objects`, `Counting objects`.
+    pub phase: String,
+    pub percent: Option<u8>,
+    /// Remaining text, e.g. `(450/1000), 1.2 MiB | 2 MiB/s`.
+    pub detail: String,
+}
+
+/// What `git push` would send: shown in the push dialog before pushing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PushPreview {
+    pub branch: Option<String>,
+    /// Remote that will receive the push (`None` when no remote is configured).
+    pub remote: Option<String>,
+    /// Target, e.g. `origin/main`.
+    pub target: Option<String>,
+    /// The branch does not exist on the remote yet; the push sets upstream.
+    pub new_branch: bool,
+    /// Commits that will be pushed, newest first.
+    pub commits: Vec<CommitSummary>,
+    /// Commits on the upstream that are not local (push would be rejected).
+    pub behind: u32,
+}

@@ -48,6 +48,8 @@ impl RefreshState {
 pub struct RepoSession {
     repo: Arc<Repo>,
     write_lock: Mutex<()>,
+    /// Serialises network operations (concurrent fetches fight over FETCH_HEAD and ref locks).
+    net_lock: Mutex<()>,
     state: Arc<RefreshState>,
     tx: watch::Sender<Option<SharedSnapshot>>,
     _watcher: Option<RecommendedWatcher>,
@@ -87,6 +89,7 @@ impl RepoSession {
         let session = Arc::new(Self {
             repo,
             write_lock: Mutex::new(()),
+            net_lock: Mutex::new(()),
             state,
             tx,
             _watcher: watcher,
@@ -174,6 +177,30 @@ impl RepoSession {
 
         if let Err(e) = self.refresh_now().await {
             tracing::warn!("refresh after write failed: {e}");
+        }
+        Ok(result??)
+    }
+}
+
+impl RepoSession {
+    /// Run a network operation. Remote ops are serialised among themselves.
+    ///
+    /// `touches_worktree = false` (fetch, push) only updates refs, so it runs
+    /// alongside local writes — staging and committing stay responsive during a
+    /// slow push. `true` (pull) also takes the write lock.
+    pub async fn remote<T, F>(&self, touches_worktree: bool, f: F) -> Result<T>
+    where
+        F: FnOnce(&Repo) -> glide_git_backend::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let _net = self.net_lock.lock().await;
+        if touches_worktree {
+            return self.write(f).await;
+        }
+        let repo = self.repo.clone();
+        let result = tokio::task::spawn_blocking(move || f(&repo)).await;
+        if let Err(e) = self.refresh_now().await {
+            tracing::warn!("refresh after remote operation failed: {e}");
         }
         Ok(result??)
     }

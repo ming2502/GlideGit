@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-03）**：M0 基本完成（CI 待首次运行）；M1 后端和核心 UI 已完成，剩余认证回调、远程操作进度、多标签页和推送预览。下一步按顺序做：M1-17 → M1-9 → M1-10 → M1-18 → M1-11。
+**当前进度（2026-11-03）**：M0 已完成（CI 在 macOS 与 Windows 上通过）。M1 只剩 M1-10（认证回调）和 M1-11（多标签页），下一步按顺序做这两项。
 
 ## 里程碑总览
 
@@ -24,7 +24,7 @@
 - [x] M0-4 Rust → TS 类型生成（ts-rs，输出到 `ui/src/bindings`）
 - [x] M0-5 代码规范：rustfmt、clippy，以及 TS 的 `tsc --noEmit`
 - [x] M0-7 浏览器预览模式：`pnpm dev` 在普通浏览器里用 mock IPC 渲染 UI，方便调样式
-- [ ] M0-6 GitHub Actions：macOS 与 Windows 上运行 `cargo test`、`clippy` 和前端构建 — *workflow 已编写，需推送后首次运行确认*
+- [x] M0-6 GitHub Actions：macOS 与 Windows 上运行 `cargo test`、`clippy` 和前端构建
 
 ## M1 日常提交闭环
 
@@ -37,7 +37,7 @@
 - [x] M1-6 `RepoActor`：写操作串行、刷新后推送快照事件
 - [x] M1-7 Watcher：notify + 150ms 去抖，过滤 `.git` 噪声，自身写操作期间抑制
 - [x] M1-8 简单 Log（最近 N 个提交，无图）
-- [ ] M1-9 Fetch / Pull / Push，带进度事件，支持 `--force-with-lease` — *基础版已完成（首次推送自动设置 upstream，Pull 可选 merge/rebase/ff-only）；还缺进度事件与取消*
+- [x] M1-9 Fetch / Pull / Push，带进度事件，支持 `--force-with-lease`；fetch/push 不阻塞本地写操作，取消时连同 ssh 等子进程一起终止（Unix）
 - [ ] M1-10 认证：`GIT_ASKPASS` 回调到 UI，复用 SSH agent
 - [ ] M1-11 最近仓库持久化与多仓库标签页 — *最近仓库已完成；多标签页未做*
 
@@ -47,8 +47,8 @@
 - [x] M1-14 Diff 视图：统一视图，带行号和颜色（M2 换成 CodeMirror 并排视图）
 - [x] M1-15 分支弹窗：搜索、本地 / 远程分组、checkout、新建分支
 - [x] M1-16 Action 系统与快捷键（⌘K、⌘⇧`、⌘R……）
-- [ ] M1-17 后台任务进度栏与错误通知 — *状态栏任务指示与错误 toast 已完成；还缺进度百分比与取消按钮*
-- [ ] M1-18 Pull / Push 对话框（推送前预览提交）
+- [x] M1-17 后台任务进度栏与错误通知：状态栏显示阶段、百分比和进度条，可取消，多任务时可展开列表
+- [x] M1-18 推送对话框：推送前列出将要推送的提交和目标分支，提示远端领先，支持 Force Push（with-lease）。Pull 暂用工具栏下拉选择模式，没有单独对话框
 
 ## M2 Log 与精细提交
 

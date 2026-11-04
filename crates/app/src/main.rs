@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod tasks;
 
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use glide_git_backend::GitCli;
 
 pub struct AppState {
     pub manager: Arc<RepositoryManager>,
+    pub tasks: Arc<tasks::TaskRegistry>,
     pub git_version: String,
 }
 
@@ -37,6 +39,7 @@ fn main() {
     let state = AppState {
         git_version: cli.version().to_string(),
         manager: Arc::new(RepositoryManager::new(cli)),
+        tasks: Arc::default(),
     };
 
     tauri::Builder::default()
@@ -61,6 +64,8 @@ fn main() {
             commands::fetch,
             commands::pull,
             commands::push,
+            commands::push_preview,
+            commands::cancel_task,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GlideGit");

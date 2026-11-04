@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use glide_git_backend::*;
 
@@ -232,14 +233,14 @@ fn remote_tracking_checkout_push_pull() {
         )
         .unwrap();
     // First push sets upstream.
-    repo.push(false, None).unwrap();
+    repo.push(false, &NetOptions::default()).unwrap();
     let snap = repo.snapshot().unwrap();
     assert_eq!(snap.head.upstream.as_deref(), Some("origin/main"));
     assert!(snap.branches.remote.iter().any(|b| b.name == "origin/main"));
 
     // Push a branch, delete it locally, then check it out from the remote.
     repo.create_branch("topic", None, true).unwrap();
-    repo.push(false, None).unwrap();
+    repo.push(false, &NetOptions::default()).unwrap();
     repo.checkout_branch("main", false).unwrap();
     repo.delete_branch("topic", true).unwrap();
     repo.checkout_branch("origin/topic", true).unwrap();
@@ -259,12 +260,13 @@ fn remote_tracking_checkout_push_pull() {
     write(other.path(), "remote.txt", "r\n");
     other_repo.stage_all().unwrap();
     other_repo.commit("from other", false).unwrap();
-    other_repo.push(false, None).unwrap();
+    other_repo.push(false, &NetOptions::default()).unwrap();
 
     repo.checkout_branch("main", false).unwrap();
-    repo.fetch(None).unwrap();
+    repo.fetch(&NetOptions::default()).unwrap();
     assert_eq!(repo.status().unwrap().0.behind, 1);
-    repo.pull(PullMode::FastForwardOnly, None).unwrap();
+    repo.pull(PullMode::FastForwardOnly, &NetOptions::default())
+        .unwrap();
     assert!(dir.path().join("remote.txt").exists());
 }
 
@@ -304,4 +306,123 @@ fn binary_file_diff() {
     assert!(d.binary);
     let d = repo.diff_file("img.bin", DiffMode::Head, true).unwrap();
     assert!(d.binary);
+}
+
+#[test]
+fn push_preview_and_progress() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let c = cli();
+    c.run(
+        remote_dir.path(),
+        &["init", "-q", "--bare", "-b", "main"],
+        RunOptions::write(),
+    )
+    .unwrap();
+    let (dir, repo) = repo_with_commit();
+
+    // No remote configured: preview has no target, push fails cleanly.
+    let p = repo.push_preview(100).unwrap();
+    assert!(p.remote.is_none() && p.new_branch);
+    assert!(repo.push(false, &NetOptions::default()).is_err());
+
+    let url = remote_dir.path().to_string_lossy().to_string();
+    repo.cli()
+        .run(
+            repo.root(),
+            &["remote", "add", "origin", &url],
+            RunOptions::write(),
+        )
+        .unwrap();
+
+    // First push: new branch, every local commit is outgoing.
+    let p = repo.push_preview(100).unwrap();
+    assert!(p.new_branch);
+    assert_eq!(p.target.as_deref(), Some("origin/main"));
+    assert_eq!(p.commits.len(), 1);
+
+    // Progress lines are parsed and kept out of stderr.
+    let seen = Arc::new(Mutex::new(Vec::<Progress>::new()));
+    let sink = {
+        let seen = seen.clone();
+        ProgressSink::new(move |p| seen.lock().unwrap().push(p.clone()))
+    };
+    let net = NetOptions {
+        cancel: None,
+        progress: Some(sink),
+    };
+    repo.push(false, &net).unwrap();
+    let seen = seen.lock().unwrap();
+    assert!(
+        seen.iter().any(|p| p.phase == "Writing objects"),
+        "{seen:?}"
+    );
+
+    // After pushing nothing is outgoing; a new commit is.
+    let p = repo.push_preview(100).unwrap();
+    assert!(!p.new_branch && p.commits.is_empty());
+    write(dir.path(), "x.txt", "x\n");
+    repo.stage_all().unwrap();
+    repo.commit("second", false).unwrap();
+    let p = repo.push_preview(100).unwrap();
+    assert_eq!(p.commits.len(), 1);
+    assert_eq!(p.commits[0].subject, "second");
+}
+
+#[test]
+fn network_error_message_has_no_progress_noise() {
+    let (_dir, repo) = repo_with_commit();
+    repo.cli()
+        .run(
+            repo.root(),
+            &["remote", "add", "origin", "/nonexistent/repo.git"],
+            RunOptions::write(),
+        )
+        .unwrap();
+    let net = NetOptions {
+        cancel: None,
+        progress: Some(ProgressSink::new(|_| {})),
+    };
+    let err = repo.fetch(&net).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("does not appear to be a git repository") || msg.contains("fatal"),
+        "{msg}"
+    );
+    assert!(!msg.contains('%'), "{msg}");
+}
+
+/// Cancelling a hung network operation returns promptly and kills the
+/// transport helper too (it runs in git's process group).
+#[cfg(unix)]
+#[test]
+fn cancel_hung_fetch() {
+    use std::time::{Duration, Instant};
+    let (_dir, repo) = repo_with_commit();
+    let run = |args: &[&str]| {
+        repo.cli()
+            .run(repo.root(), args, RunOptions::write())
+            .unwrap();
+    };
+    // `ext::` transport running a command that never answers.
+    run(&["config", "protocol.ext.allow", "always"]);
+    run(&["remote", "add", "slow", "ext::sh -c sleep% 30"]);
+
+    let token = CancelToken::new();
+    let t2 = token.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(400));
+        t2.cancel();
+    });
+    let started = Instant::now();
+    let net = NetOptions {
+        cancel: Some(token),
+        progress: None,
+    };
+    let err = repo.fetch(&net).unwrap_err();
+    assert!(matches!(err, GitError::Cancelled), "{err:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "took {:?}",
+        started.elapsed()
+    );
 }

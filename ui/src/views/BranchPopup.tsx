@@ -132,7 +132,14 @@ export function BranchPopup() {
 
   return (
     <div className="backdrop clear" onMouseDown={close}>
-      <div className="branch-popup" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div
+        className="branch-popup"
+        role="dialog"
+        aria-modal
+        aria-label="Branches"
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={onKey}
+      >
         {creating ? (
           <input
             ref={inputRef}

@@ -90,6 +90,8 @@ function isTextInput(t: EventTarget | null): boolean {
 
 export function installKeyHandler(): () => void {
   const handler = (e: KeyboardEvent) => {
+    // A modal dialog/popup owns the keyboard; global shortcuts pause meanwhile.
+    if (document.querySelector('[aria-modal="true"]')) return;
     const inText = isTextInput(e.target);
     for (const a of registry.values()) {
       for (const k of a.keys ?? []) {

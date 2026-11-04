@@ -147,7 +147,8 @@ export function CommitPanel() {
     setMessage("");
     setAmend(false);
     useRepo.getState().toast({ kind: "success", title: `已提交 ${oid.slice(0, 8)}`, detail: msg.split("\n")[0] });
-    if (andPush) await runTask("推送", (r) => api.push(r, false), "推送成功");
+    // Like IDEA: "Commit and Push…" commits, then opens the push dialog.
+    if (andPush) useRepo.getState().setPushDialog(true);
   }
 
   async function toggleAmend(next: boolean) {

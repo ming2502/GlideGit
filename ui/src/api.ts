@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CommitSummary } from "./bindings/CommitSummary";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileDiff } from "./bindings/FileDiff";
+import type { Progress } from "./bindings/Progress";
+import type { PushPreview } from "./bindings/PushPreview";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 
 export interface AppInfo {
@@ -18,6 +20,10 @@ export interface AppError {
 }
 
 export type PullMode = "merge" | "rebase" | "ffOnly";
+
+export function isCancelled(e: unknown): boolean {
+  return !!e && typeof e === "object" && (e as AppError).kind === "cancelled";
+}
 
 export function errorMessage(e: unknown): string {
   if (e && typeof e === "object" && "message" in e) return String((e as AppError).message);
@@ -46,10 +52,19 @@ export const api = {
     invoke<void>("create_branch", { root, name, start, checkout }),
   deleteBranch: (root: string, name: string, force: boolean) =>
     invoke<void>("delete_branch", { root, name, force }),
-  fetch: (root: string) => invoke<void>("fetch", { root }),
-  pull: (root: string, mode: PullMode) => invoke<void>("pull", { root, mode }),
-  push: (root: string, forceWithLease: boolean) => invoke<void>("push", { root, forceWithLease }),
+  fetch: (root: string, taskId: number) => invoke<void>("fetch", { root, taskId }),
+  pull: (root: string, mode: PullMode, taskId: number) => invoke<void>("pull", { root, mode, taskId }),
+  push: (root: string, forceWithLease: boolean, taskId: number) =>
+    invoke<void>("push", { root, forceWithLease, taskId }),
+  pushPreview: (root: string) => invoke<PushPreview>("push_preview", { root }),
+  cancelTask: (taskId: number) => invoke<boolean>("cancel_task", { taskId }),
 };
+
+export function onTaskProgress(cb: (taskId: number, progress: Progress) => void): Promise<UnlistenFn> {
+  return listen<{ taskId: number; progress: Progress }>("task-progress", (e) =>
+    cb(e.payload.taskId, e.payload.progress),
+  );
+}
 
 export function onSnapshot(
   cb: (root: string, snapshot: RepoSnapshot) => void,

@@ -126,3 +126,36 @@ async fn manager_dedupes_sessions() {
     assert!(m.close(&key).await);
     assert!(m.get(&key).await.is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remote_ops_do_not_block_local_writes() {
+    let dir = init();
+    fs::write(dir.path().join("a.txt"), "a").unwrap();
+    let session = RepoSession::open(cli(), dir.path()).await.unwrap();
+
+    // A slow "network" op (no worktree access) holds only the network lock.
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let s2 = session.clone();
+    let slow = tokio::spawn(async move {
+        s2.remote(false, move |_| {
+            let _ = started_tx.send(());
+            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            Ok(())
+        })
+        .await
+    });
+    started_rx.await.unwrap();
+
+    // A local write completes while the remote op is still running.
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.write(|r| r.stage(&["a.txt".to_string()])),
+    )
+    .await
+    .expect("write blocked by remote op")
+    .unwrap();
+
+    release_tx.send(()).unwrap();
+    slow.await.unwrap().unwrap();
+}
