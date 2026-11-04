@@ -205,6 +205,12 @@ export function CommitPanel() {
 
   function menuItems(c: FileChange): (MenuItem | "separator")[] {
     const inc = included(c);
+    if (c.conflicted)
+      return [
+        { label: "解决冲突…", onClick: () => useRepo.getState().setMergePath(c.path) },
+        "separator",
+        { label: "复制路径", onClick: () => void navigator.clipboard.writeText(c.path) },
+      ];
     return [
       { label: inc === true ? "从提交中排除 (Unstage)" : "加入提交 (Stage)", onClick: () => toggle([c]) },
       { label: "Rollback…", shortcut: shortcutOf("changes.rollback"), danger: true, onClick: () => void rollback([c]) },
@@ -305,6 +311,7 @@ function FileRow(props: {
       className={`row file-row ${props.selected ? "selected" : ""}`}
       style={{ height: ROW_H }}
       onMouseDown={props.onSelect}
+      onDoubleClick={() => c.conflicted && useRepo.getState().setMergePath(c.path)}
       onContextMenu={(e) => {
         e.preventDefault();
         props.onContext(e.clientX, e.clientY);

@@ -6,6 +6,8 @@ import type { DiffMode } from "./bindings/DiffMode";
 import type { FileTexts } from "./bindings/FileTexts";
 import type { AuthorCount } from "./bindings/AuthorCount";
 import type { CommitDetails } from "./bindings/CommitDetails";
+import type { ConflictSide } from "./bindings/ConflictSide";
+import type { ConflictTexts } from "./bindings/ConflictTexts";
 import type { LogFilter } from "./bindings/LogFilter";
 import type { LogPage } from "./bindings/LogPage";
 import type { LogStatus } from "./bindings/LogStatus";
@@ -58,6 +60,11 @@ export const api = {
     invoke<number | null>("log_row_of", { root, oid, filter }),
   logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
   commitDetails: (root: string, oid: string) => invoke<CommitDetails>("commit_details", { root, oid }),
+  conflictTexts: (root: string, path: string) => invoke<ConflictTexts>("conflict_texts", { root, path }),
+  resolveConflict: (root: string, path: string, content: string | null) =>
+    invoke<void>("resolve_conflict", { root, path, content }),
+  resolveWithSide: (root: string, path: string, side: ConflictSide) =>
+    invoke<void>("resolve_with_side", { root, path, side }),
   stashList: (root: string) => invoke<StashEntry[]>("stash_list", { root }),
   stashPush: (root: string, options: StashOptions) => invoke<void>("stash_push", { root, options }),
   stashApply: (root: string, index: number, oid: string, pop: boolean, restoreIndex: boolean) =>

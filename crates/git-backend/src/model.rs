@@ -238,6 +238,37 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// The three versions of a conflicted file, for the merge tool.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConflictTexts {
+    pub path: String,
+    /// Common ancestor (stage 1); `None` when both sides added the file.
+    pub base: Option<String>,
+    /// Our version (stage 2); `None` when we deleted it.
+    pub ours: Option<String>,
+    /// Their version (stage 3); `None` when they deleted it.
+    pub theirs: Option<String>,
+    /// What "ours" / "theirs" are in this operation, e.g. "main" and
+    /// "1a2b3c4 Fix parser".
+    pub ours_label: String,
+    pub theirs_label: String,
+    pub binary: bool,
+    pub too_large: bool,
+    /// Some version would not round-trip through the editor.
+    pub lossy: bool,
+}
+
+/// Which side of a conflict to take as a whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ConflictSide {
+    Ours,
+    Theirs,
+}
+
 /// Both versions of a file, for the side-by-side diff editor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -57,13 +57,20 @@ const theme = EditorView.theme({
 });
 
 /** Shared by every editor in the diff. */
-const base: Extension = [
-  EditorState.readOnly.of(true),
-  EditorView.editable.of(false),
-  lineNumbers(),
-  syntaxHighlighting(highlight),
-  theme,
-];
+/** Line numbers, syntax colours and the app theme (shared with the merge tool). */
+export const editorLook: Extension = [lineNumbers(), syntaxHighlighting(highlight), theme];
+
+const base: Extension = [EditorState.readOnly.of(true), EditorView.editable.of(false), editorLook];
+
+/** Load syntax highlighting for `path` into a compartment of these views. */
+export function loadLanguage(path: string, lang: Compartment, views: EditorView[], alive: () => boolean): void {
+  LanguageDescription.matchFilename(languages, path.split("/").pop() ?? path)
+    ?.load()
+    .then((support) => {
+      if (alive()) for (const v of views) v.dispatch({ effects: lang.reconfigure(support) });
+    })
+    .catch(() => {});
+}
 
 const COLLAPSE = { margin: 3, minSize: 6 };
 /** Give up on a minimal diff for huge files rather than freezing the UI. */

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
-    CommitDetails, DiffMode, FileDiff, FileTexts, PullMode, PushPreview, RepoSnapshot, ResetMode,
-    StashEntry, StashOptions,
+    CommitDetails, ConflictSide, ConflictTexts, DiffMode, FileDiff, FileTexts, PullMode,
+    PushPreview, RepoSnapshot, ResetMode, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -265,6 +265,41 @@ pub async fn file_texts(
         s.read(move |r| r.file_texts(&path, orig_path.as_deref(), mode, untracked))
             .await?,
     )
+}
+
+#[tauri::command]
+pub async fn conflict_texts(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+) -> CmdResult<ConflictTexts> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.conflict_texts(&path)).await?)
+}
+
+#[tauri::command]
+pub async fn resolve_conflict(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    content: Option<String>,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.write(move |r| r.resolve_conflict(&path, content.as_deref()))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn resolve_with_side(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    side: ConflictSide,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    Ok(s.write(move |r| r.resolve_with_side(&path, side)).await?)
 }
 
 #[tauri::command]

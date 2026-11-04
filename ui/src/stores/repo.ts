@@ -65,6 +65,8 @@ interface RepoState {
   confirm: ConfirmRequest | null;
   pushDialog: boolean;
   stashDialog: boolean;
+  /** Conflicted file open in the merge tool. */
+  mergePath: string | null;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -91,6 +93,7 @@ interface RepoState {
   cancelTask: (taskId: number) => void;
   setPushDialog: (open: boolean) => void;
   setStashDialog: (open: boolean) => void;
+  setMergePath: (path: string | null) => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
@@ -132,6 +135,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   confirm: null,
   pushDialog: false,
   stashDialog: false,
+  mergePath: null,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -320,6 +324,7 @@ export const useRepo = create<RepoState>((set, get) => ({
 
   setPushDialog: (pushDialog) => set({ pushDialog }),
   setStashDialog: (stashDialog) => set({ stashDialog }),
+  setMergePath: (mergePath) => set({ mergePath }),
 
   toast(t) {
     const id = ++seq;

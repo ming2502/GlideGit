@@ -978,3 +978,84 @@ fn refs_fingerprint_in_linked_worktree() {
     assert_ne!(fp, wt.refs_fingerprint());
     assert_eq!(wt.snapshot().unwrap().head.branch.as_deref(), Some("side"));
 }
+
+/// A repo stopped in a merge with a conflict in a.txt.
+fn conflicted_repo() -> (tempfile::TempDir, Repo) {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "1\n2\n3\n");
+    write(root, "gone.txt", "x\n");
+    repo.stage_all().unwrap();
+    repo.commit("base", false).unwrap();
+    repo.create_branch("other", None, true).unwrap();
+    write(root, "a.txt", "1\nTHEIRS\n3\n");
+    fs::remove_file(root.join("gone.txt")).unwrap();
+    repo.stage_all().unwrap();
+    repo.commit("their change", false).unwrap();
+    repo.checkout_branch("main", false).unwrap();
+    write(root, "a.txt", "1\nOURS\n3\n");
+    write(root, "gone.txt", "edited\n");
+    repo.stage_all().unwrap();
+    repo.commit("our change", false).unwrap();
+    let merge = repo
+        .cli()
+        .run(root, &["merge", "other"], RunOptions::write())
+        .unwrap_err();
+    assert!(matches!(merge, GitError::Failed { .. }));
+    (dir, repo)
+}
+
+#[test]
+fn conflict_texts_and_resolution() {
+    let (dir, repo) = conflicted_repo();
+    let t = repo.conflict_texts("a.txt").unwrap();
+    assert_eq!(t.base.as_deref(), Some("1\n2\n3\n"));
+    assert_eq!(t.ours.as_deref(), Some("1\nOURS\n3\n"));
+    assert_eq!(t.theirs.as_deref(), Some("1\nTHEIRS\n3\n"));
+    assert_eq!(t.ours_label, "main");
+    assert!(
+        t.theirs_label.ends_with("their change"),
+        "{}",
+        t.theirs_label
+    );
+
+    // Modify/delete: they deleted gone.txt.
+    let g = repo.conflict_texts("gone.txt").unwrap();
+    assert_eq!(
+        (g.ours.as_deref(), g.theirs.as_deref()),
+        (Some("edited\n"), None)
+    );
+
+    // Resolve a.txt with merged content, gone.txt by taking their deletion.
+    repo.resolve_conflict("a.txt", Some("1\nOURS\nTHEIRS\n3\n"))
+        .unwrap();
+    repo.resolve_with_side("gone.txt", ConflictSide::Theirs)
+        .unwrap();
+    let st = repo.status().unwrap().1;
+    assert!(st.iter().all(|c| !c.conflicted), "{st:?}");
+    assert!(!dir.path().join("gone.txt").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "1\nOURS\nTHEIRS\n3\n"
+    );
+    repo.continue_operation().unwrap();
+    assert_eq!(repo.operation(), None);
+}
+
+#[test]
+fn resolve_with_ours() {
+    let (dir, repo) = conflicted_repo();
+    repo.resolve_with_side("a.txt", ConflictSide::Ours).unwrap();
+    repo.resolve_with_side("gone.txt", ConflictSide::Ours)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "1\nOURS\n3\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("gone.txt")).unwrap(),
+        "edited\n"
+    );
+    assert!(repo.status().unwrap().1.iter().all(|c| !c.conflicted));
+    assert!(repo.conflict_texts("../x").is_err());
+}

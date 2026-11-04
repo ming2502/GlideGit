@@ -39,6 +39,15 @@ export function OperationBanner() {
         {conflicts > 0 ? `，还有 ${conflicts} 个冲突文件待解决` : "，冲突已解决，可以继续"}
       </span>
       <span className="spacer" />
+      {conflicts > 0 && (
+        <button
+          className="btn"
+          onClick={() => useRepo.getState().setMergePath(snapshot.changes.find((c) => c.conflicted)!.path)}
+          title="在三方合并工具中打开第一个冲突文件（也可双击冲突文件）"
+        >
+          解决冲突…
+        </button>
+      )}
       <button className="btn" disabled={busy} onClick={() => void abort()}>
         中止
       </button>

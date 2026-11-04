@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api, onSnapshot, onTaskProgress, type AppInfo } from "./api";
 import { installKeyHandler, useActions } from "./actions/registry";
 import { ConfirmDialog, Toasts } from "./components/Overlays";
@@ -10,6 +10,9 @@ import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
 import { StashDialog, StashView } from "./views/StashView";
+
+// The merge tool brings CodeMirror; load it when first needed.
+const MergeTool = lazy(() => import("./views/MergeTool").then((m) => ({ default: m.MergeTool })));
 import { AskpassDialog } from "./views/AskpassDialog";
 import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
@@ -19,6 +22,7 @@ import { Welcome } from "./views/Welcome";
 export function App() {
   const root = useRepo((s) => s.root);
   const view = useRepo((s) => s.view);
+  const mergePath = useRepo((s) => s.mergePath);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [restored, setRestored] = useState(false);
 
@@ -142,6 +146,11 @@ export function App() {
       <BranchPopup />
       <PushDialog />
       <StashDialog />
+      {mergePath && (
+        <Suspense fallback={null}>
+          <MergeTool />
+        </Suspense>
+      )}
       <ConfirmDialog />
       <AskpassDialog />
       <Toasts />

@@ -222,6 +222,17 @@ function startIndexing(root: string) {
   setTimeout(step, 250);
 }
 
+/** A longer Rust-like sample file. */
+function rustSample(): string {
+  return Array.from({ length: 140 }, (_, i) =>
+    i % 12 === 0
+      ? `\n/// Handles request number ${i}.\npub fn handle_${i}(state: &State, input: &str) -> Result<usize> {`
+      : i % 12 === 11
+        ? "}"
+        : `    let value_${i} = state.lookup("${i}").unwrap_or(${i});`,
+  ).join("\n");
+}
+
 /** A sample file in two versions, for the diff editor in the demo. */
 function textsFor(path: string) {
   const ext = path.split(".").pop() ?? "";
@@ -496,6 +507,34 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "conflict_texts": {
+        const base = rustSample();
+        const ours = base
+          .replace("fn handle_24(", "fn handle_24_cached(")
+          .replace("    let value_40 = state.lookup(\"40\").unwrap_or(40);", "    let value_40 = state.lookup_fast(\"40\").unwrap_or(40);")
+          .replace("/// Handles request number 96.", "/// Handles request number 96 (ours).");
+        const theirs = base
+          .replace("    let value_40 = state.lookup(\"40\").unwrap_or(40);", "    let value_40 = state.lookup(\"40\").expect(\"value 40\");")
+          .replace("    let value_70 = state.lookup(\"70\").unwrap_or(70);\n", "")
+          .replace("/// Handles request number 120.", "/// Handles request number 120.\n/// Retries once.");
+        return {
+          path: a.path,
+          base,
+          ours,
+          theirs,
+          oursLabel: "feature/commit-panel",
+          theirsLabel: "78dde6c Log filters",
+          binary: false,
+          tooLarge: false,
+          lossy: false,
+        };
+      }
+      case "resolve_conflict":
+      case "resolve_with_side":
+        // Dev aid: lets the demo (and manual checks) see what was saved.
+        (window as unknown as { __lastResolve: unknown }).__lastResolve = a.content ?? a.side;
+        changes = changes.map((c) => (c.path === a.path ? { ...c, conflicted: false, unstaged: null, staged: "modified" } : c));
+        return sleep(150).then(() => (publish(), null));
       case "stash_list":
         return stashes.map((e, index) => ({ ...e, index }));
       case "stash_push": {

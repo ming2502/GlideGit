@@ -715,6 +715,123 @@ impl Repo {
         })
     }
 
+    /// Base, ours and theirs of a conflicted file, from the index stages.
+    pub fn conflict_texts(&self, path: &str) -> Result<ConflictTexts> {
+        self.resolve(path)?;
+        let mut out = ConflictTexts {
+            path: path.to_string(),
+            ..ConflictTexts::default()
+        };
+        (out.ours_label, out.theirs_label) = self.conflict_labels();
+        let blobs = [
+            self.read_blob(&format!(":1:{path}"))?,
+            self.read_blob(&format!(":2:{path}"))?,
+            self.read_blob(&format!(":3:{path}"))?,
+        ];
+        if blobs.iter().any(|b| matches!(b, Blob::TooLarge)) {
+            out.too_large = true;
+            return Ok(out);
+        }
+        let [base, ours, theirs] = blobs.map(Blob::into_bytes);
+        let all = [&base, &ours, &theirs];
+        if all.iter().any(|d| {
+            d.as_ref()
+                .is_some_and(|d| d[..d.len().min(8000)].contains(&0))
+        }) {
+            out.binary = true;
+            return Ok(out);
+        }
+        out.lossy = all.iter().any(|d| d.as_deref().is_some_and(is_lossy));
+        let text = |d: Option<Vec<u8>>| d.map(|d| String::from_utf8_lossy(&d).into_owned());
+        (out.base, out.ours, out.theirs) = (text(base), text(ours), text(theirs));
+        Ok(out)
+    }
+
+    /// Names for the two sides of the operation in progress. During a rebase
+    /// "ours" is the branch being rebased onto and "theirs" the commit being
+    /// replayed, which is the opposite of what people expect, so say so.
+    fn conflict_labels(&self) -> (String, String) {
+        let describe = |rev: &str| -> Option<String> {
+            let out = self
+                .read(&["log", "-1", "--format=%h %s", rev, "--"])
+                .ok()?;
+            let s = out.trim();
+            (!s.is_empty()).then(|| s.to_string())
+        };
+        let head = self
+            .status()
+            .ok()
+            .and_then(|(h, _)| h.branch)
+            .or_else(|| describe("HEAD"))
+            .unwrap_or_else(|| "HEAD".into());
+        let theirs_of = |file: &str| {
+            std::fs::read_to_string(self.git_dir.join(file))
+                .ok()
+                .and_then(|oid| {
+                    let oid = oid.lines().next()?.trim().to_string();
+                    check_oid(&oid).ok()?;
+                    describe(&oid)
+                })
+        };
+        match self.operation() {
+            Some(RepoOperation::Rebase) => (
+                format!(
+                    "变基目标 {}",
+                    describe("HEAD").unwrap_or_else(|| "HEAD".into())
+                ),
+                theirs_of("REBASE_HEAD").unwrap_or_else(|| "正在应用的提交".into()),
+            ),
+            Some(RepoOperation::Merge) => (
+                head,
+                theirs_of("MERGE_HEAD").unwrap_or_else(|| "合并进来的分支".into()),
+            ),
+            Some(RepoOperation::CherryPick) => (
+                head,
+                theirs_of("CHERRY_PICK_HEAD").unwrap_or_else(|| "cherry-pick 的提交".into()),
+            ),
+            Some(RepoOperation::Revert) => (
+                head,
+                theirs_of("REVERT_HEAD")
+                    .map(|s| format!("撤销 {s}"))
+                    .unwrap_or_else(|| "revert".into()),
+            ),
+            // e.g. a conflicting `git stash apply`
+            None => (head, "他们的".into()),
+        }
+    }
+
+    /// Mark a conflicted file resolved: write `content` to it and stage it,
+    /// or (with `None`) resolve by deleting the file.
+    pub fn resolve_conflict(&self, path: &str, content: Option<&str>) -> Result<()> {
+        let full = self.resolve(path)?;
+        match content {
+            Some(c) => {
+                std::fs::write(&full, c)?;
+                self.write_with_paths(&["add", "-A"], &[path.to_string()])
+            }
+            None => self.write_with_paths(&["rm", "-q", "--ignore-unmatch"], &[path.to_string()]),
+        }
+    }
+
+    /// Resolve a conflicted file by taking one side as a whole (deleting it
+    /// if that side deleted it).
+    pub fn resolve_with_side(&self, path: &str, side: ConflictSide) -> Result<()> {
+        self.resolve(path)?;
+        let stage = match side {
+            ConflictSide::Ours => ":2:",
+            ConflictSide::Theirs => ":3:",
+        };
+        if matches!(self.read_blob(&format!("{stage}{path}"))?, Blob::Missing) {
+            return self.resolve_conflict(path, None);
+        }
+        let flag = match side {
+            ConflictSide::Ours => "--ours",
+            ConflictSide::Theirs => "--theirs",
+        };
+        self.write_with_paths(&["checkout", flag], &[path.to_string()])?;
+        self.write_with_paths(&["add", "-A"], &[path.to_string()])
+    }
+
     /// Join a repo-relative path, rejecting anything that could escape the worktree.
     fn resolve(&self, rel: &str) -> Result<PathBuf> {
         let p = Path::new(rel);
