@@ -20,6 +20,29 @@ pub struct Repo {
     git_dir: PathBuf,
 }
 
+/// Where one side of a file comparison comes from.
+enum Side<'a> {
+    Missing,
+    Worktree(&'a str),
+    Index(&'a str),
+    Rev(&'a str, &'a str),
+}
+
+enum Blob {
+    Missing,
+    TooLarge,
+    Data(Vec<u8>),
+}
+
+impl Blob {
+    fn into_bytes(self) -> Option<Vec<u8>> {
+        match self {
+            Blob::Data(d) => Some(d),
+            _ => None,
+        }
+    }
+}
+
 /// How `git reset` treats the index and working tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +362,135 @@ impl Repo {
         }
         let text = self.read(&args)?;
         Ok(parse::parse_unified_diff(&text, path, MAX_DIFF_LINES))
+    }
+
+    /// Both versions of a working-copy file for the diff editor, compared
+    /// as in [`Repo::diff_file`]. `orig_path` is the old name of a rename.
+    pub fn file_texts(
+        &self,
+        path: &str,
+        orig_path: Option<&str>,
+        mode: DiffMode,
+        untracked: bool,
+    ) -> Result<FileTexts> {
+        let before = orig_path.unwrap_or(path);
+        let (old, new) = if untracked {
+            (Side::Missing, Side::Worktree(path))
+        } else {
+            match mode {
+                DiffMode::WorkingTree => (Side::Index(path), Side::Worktree(path)),
+                DiffMode::Staged => (Side::Rev("HEAD", before), Side::Index(path)),
+                DiffMode::Head => (Side::Rev("HEAD", before), Side::Worktree(path)),
+            }
+        };
+        self.texts(path, old, new)
+    }
+
+    /// Both versions of a file in a commit (against `parent`, or nothing for
+    /// a root commit).
+    pub fn commit_file_texts(
+        &self,
+        oid: &str,
+        parent: Option<&str>,
+        path: &str,
+        orig_path: Option<&str>,
+    ) -> Result<FileTexts> {
+        check_oid(oid)?;
+        let old = match parent {
+            Some(p) => {
+                check_oid(p)?;
+                Side::Rev(p, orig_path.unwrap_or(path))
+            }
+            None => Side::Missing,
+        };
+        self.texts(path, old, Side::Rev(oid, path))
+    }
+
+    fn texts(&self, path: &str, old: Side, new: Side) -> Result<FileTexts> {
+        let mut out = FileTexts {
+            path: path.to_string(),
+            ..FileTexts::default()
+        };
+        let a = self.read_side(&old)?;
+        let b = self.read_side(&new)?;
+        if matches!(a, Blob::TooLarge) || matches!(b, Blob::TooLarge) {
+            out.too_large = true;
+            return Ok(out);
+        }
+        let (a, b) = (a.into_bytes(), b.into_bytes());
+        // Same heuristic as git: a NUL in the first 8000 bytes means binary.
+        let binary = |d: &Option<Vec<u8>>| {
+            d.as_ref()
+                .is_some_and(|d| d[..d.len().min(8000)].contains(&0))
+        };
+        if binary(&a) || binary(&b) {
+            out.binary = true;
+            return Ok(out);
+        }
+        let text = |d: Option<Vec<u8>>| d.map(|d| String::from_utf8_lossy(&d).into_owned());
+        out.old = text(a);
+        out.new = text(b);
+        Ok(out)
+    }
+
+    fn read_side(&self, side: &Side) -> Result<Blob> {
+        match side {
+            Side::Missing => Ok(Blob::Missing),
+            Side::Worktree(p) => {
+                let full = self.resolve(p)?;
+                match std::fs::metadata(&full) {
+                    Ok(m) if m.is_file() && m.len() > MAX_PREVIEW_BYTES => Ok(Blob::TooLarge),
+                    Ok(m) if m.is_file() => Ok(Blob::Data(std::fs::read(&full)?)),
+                    _ => Ok(Blob::Missing),
+                }
+            }
+            Side::Index(p) => self.read_blob(&format!(":{p}")),
+            Side::Rev(rev, p) => self.read_blob(&format!("{rev}:{p}")),
+        }
+    }
+
+    /// Read `rev:path` with `git cat-file --batch`, stopping as soon as the
+    /// header says the blob is over the size limit.
+    fn read_blob(&self, spec: &str) -> Result<Blob> {
+        if spec.contains('\n') {
+            return Err(GitError::Invalid(format!("invalid path: {spec:?}")));
+        }
+        let mut buf: Vec<u8> = Vec::new();
+        let mut header: Option<Option<usize>> = None; // Some(None) = missing
+        self.cli.run_streaming(
+            &self.root,
+            &["cat-file", "--batch"],
+            RunOptions::read().stdin(format!("{spec}\n")),
+            |chunk| {
+                buf.extend_from_slice(chunk);
+                if header.is_none() {
+                    let Some(nl) = buf.iter().position(|&b| b == b'\n') else {
+                        return true;
+                    };
+                    let line = String::from_utf8_lossy(&buf[..nl]).into_owned();
+                    buf.drain(..=nl);
+                    // "<oid> blob <size>", or "<spec> missing" / "ambiguous".
+                    let mut f = line.split(' ');
+                    let size = match (f.next(), f.next(), f.next()) {
+                        (Some(_), Some("blob"), Some(n)) => n.parse::<usize>().ok(),
+                        _ => None,
+                    };
+                    header = Some(size);
+                    if size.is_none_or(|n| n as u64 > MAX_PREVIEW_BYTES) {
+                        return false;
+                    }
+                }
+                true
+            },
+        )?;
+        Ok(match header {
+            Some(Some(n)) if n as u64 > MAX_PREVIEW_BYTES => Blob::TooLarge,
+            Some(Some(n)) => {
+                buf.truncate(n);
+                Blob::Data(buf)
+            }
+            _ => Blob::Missing,
+        })
     }
 
     /// Join a repo-relative path, rejecting anything that could escape the worktree.

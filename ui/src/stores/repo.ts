@@ -3,7 +3,7 @@ import { api, errorMessage, isCancelled, type PullMode } from "../api";
 import type { Progress } from "../bindings/Progress";
 import type { DiffMode } from "../bindings/DiffMode";
 import type { FileChange } from "../bindings/FileChange";
-import type { FileDiff } from "../bindings/FileDiff";
+import type { FileTexts } from "../bindings/FileTexts";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 import { load, save } from "../lib/storage";
 
@@ -53,7 +53,8 @@ interface RepoState {
   recent: string[];
 
   selectedPath: string | null;
-  diff: FileDiff | null;
+  /** Both sides of the selected file, for the diff editor. */
+  diff: FileTexts | null;
   diffLoading: boolean;
   /** Optimistic include/exclude state, cleared by the next snapshot. */
   pendingStage: Record<string, boolean>;
@@ -243,7 +244,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     const mode: DiffMode = change.conflicted ? "workingTree" : "head";
     set({ diffLoading: true });
     try {
-      const diff = await api.diffFile(root, selectedPath, mode, change.unstaged === "untracked");
+      const diff = await api.fileTexts(root, selectedPath, change.origPath, mode, change.unstaged === "untracked");
       if (mine === diffSeq) set({ diff, diffLoading: false }); // drop stale responses
     } catch (e) {
       if (mine === diffSeq) {

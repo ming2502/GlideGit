@@ -1,13 +1,13 @@
-import { useMemo } from "react";
-import type { DiffLine } from "../bindings/DiffLine";
-import type { FileDiff } from "../bindings/FileDiff";
-import { VirtualList } from "../components/VirtualList";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useActions } from "../actions/registry";
+import type { FileTexts } from "../bindings/FileTexts";
+import type { CodeDiffHandle, DiffLayout, DiffStats } from "../components/CodeDiff";
+
+// CodeMirror is large; load it on first use so the app shell starts fast.
+const CodeDiff = lazy(() => import("../components/CodeDiff").then((m) => ({ default: m.CodeDiff })));
 import { splitPath } from "../lib/format";
+import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
-
-type Row = { type: "hunk"; header: string } | { type: "line"; line: DiffLine };
-
-const ROW_H = 20;
 
 export function DiffView() {
   const diff = useRepo((s) => s.diff);
@@ -22,79 +22,94 @@ export function DiffView() {
       </div>
     );
   }
-  return <DiffBody path={selectedPath} diff={diff} loading={loading} label="HEAD ↔ 工作区" />;
+  return <TextsDiff path={selectedPath} texts={diff} loading={loading} label="HEAD ↔ 工作区" />;
 }
 
-/** A file diff with its header: unified view, line numbers, virtualised. */
-export function DiffBody({
+/** Both versions of a file in the diff editor, with a header (name, line
+ * counts, layout switch, change navigation). Binary, oversized and missing
+ * files get a message instead. */
+export function TextsDiff({
   path,
-  diff,
+  texts,
   loading,
   label,
 }: {
   path: string;
-  diff: FileDiff | null;
+  texts: FileTexts | null;
   loading: boolean;
   /** What is compared, shown on the right of the header. */
   label: string;
 }) {
-  const rows = useMemo(() => {
-    const out: Row[] = [];
-    for (const h of diff?.hunks ?? []) {
-      out.push({ type: "hunk", header: h.header });
-      for (const l of h.lines) out.push({ type: "line", line: l });
-    }
-    return out;
-  }, [diff]);
+  const [layout, setLayout] = useState<DiffLayout>(() => load<DiffLayout>("diffLayout", "split"));
+  useEffect(() => save("diffLayout", layout), [layout]);
+  const [stats, setStats] = useState<DiffStats | null>(null);
+  const nav = useRef<CodeDiffHandle | null>(null);
+  const setHandle = useCallback((h: CodeDiffHandle | null) => (nav.current = h), []);
+  useEffect(() => setStats(null), [texts]);
+
+  useActions([
+    { id: "diff.next", title: "Next Change", keys: ["f7"], run: () => nav.current?.go(1) },
+    { id: "diff.prev", title: "Previous Change", keys: ["shift+f7"], run: () => nav.current?.go(-1) },
+  ]);
 
   const { name, dir } = splitPath(path);
+  const old = texts?.old ?? null;
+  const cur = texts?.new ?? null;
+  let body: ReactNode;
+  if (!texts) body = loading ? null : <div className="diff-empty">无法读取文件</div>;
+  else if (texts.binary) body = <div className="diff-empty">二进制文件，无法显示文本差异</div>;
+  else if (texts.tooLarge) body = <div className="diff-empty">文件超过 8 MB，未加载预览</div>;
+  else if (old === null && cur === null) body = <div className="diff-empty">两侧都没有这个文件</div>;
+  else if (old === cur) body = <div className="diff-empty">内容无差异（可能仅文件模式变化）</div>;
+  else
+    body = (
+      <Suspense fallback={<div className="diff-empty"><span className="spinner" /></div>}>
+      <CodeDiff
+        key={`${path}:${layout}`}
+        path={path}
+        oldText={old ?? ""}
+        newText={cur ?? ""}
+        layout={layout}
+        onStats={setStats}
+        handle={setHandle}
+      />
+      </Suspense>
+    );
+
+  const status = old === null && cur !== null ? "新文件" : cur === null && old !== null ? "已删除" : null;
 
   return (
     <div className="diff-view">
       <div className="diff-header">
         <span className="diff-file">{name}</span>
         <span className="muted">{dir}</span>
+        {status && <span className="diff-badge">{status}</span>}
         <span className="spacer" />
         {loading && <span className="spinner" />}
-        {diff && (
-          <span className="diff-stats">
-            <span className="add">+{diff.added}</span> <span className="del">−{diff.deleted}</span>
+        {stats && (
+          <span className="diff-stats" title={`${stats.changes} 处修改`}>
+            <span className="add">+{stats.added}</span> <span className="del">−{stats.deleted}</span>
           </span>
         )}
-        <span className="muted">{label}</span>
+        <span className="diff-nav">
+          <button className="icon-btn" title="上一处修改（⇧F7）" onClick={() => nav.current?.go(-1)} disabled={!stats?.changes}>
+            ↑
+          </button>
+          <button className="icon-btn" title="下一处修改（F7）" onClick={() => nav.current?.go(1)} disabled={!stats?.changes}>
+            ↓
+          </button>
+        </span>
+        <span className="seg" role="radiogroup" aria-label="Diff 布局">
+          <button className={layout === "split" ? "on" : ""} onClick={() => setLayout("split")} role="radio" aria-checked={layout === "split"}>
+            并排
+          </button>
+          <button className={layout === "unified" ? "on" : ""} onClick={() => setLayout("unified")} role="radio" aria-checked={layout === "unified"}>
+            统一
+          </button>
+        </span>
+        <span className="muted diff-label">{label}</span>
       </div>
-      {diff?.binary ? (
-        <div className="diff-empty">二进制文件，无法显示文本差异</div>
-      ) : diff && diff.hunks.length === 0 && !loading ? (
-        <div className="diff-empty">{diff.truncated ? "文件过大，未加载预览" : "内容无差异（可能仅文件模式变化）"}</div>
-      ) : (
-        <>
-          <VirtualList
-            items={rows}
-            rowHeight={ROW_H}
-            className="diff-body"
-            render={(row, i) =>
-              row.type === "hunk" ? (
-                <div key={i} className="dl hunk" style={{ height: ROW_H }}>
-                  <span className="ln" />
-                  <span className="ln" />
-                  <span className="code">{row.header}</span>
-                </div>
-              ) : (
-                <div key={i} className={`dl ${row.line.kind}`} style={{ height: ROW_H }}>
-                  <span className="ln">{row.line.oldLine ?? ""}</span>
-                  <span className="ln">{row.line.newLine ?? ""}</span>
-                  <span className="sign">
-                    {row.line.kind === "added" ? "+" : row.line.kind === "deleted" ? "−" : row.line.kind === "noNewline" ? "\\" : " "}
-                  </span>
-                  <span className="code">{row.line.text}</span>
-                </div>
-              )
-            }
-          />
-          {diff?.truncated && <div className="diff-trunc">差异过长，已截断显示</div>}
-        </>
-      )}
+      {body}
     </div>
   );
 }

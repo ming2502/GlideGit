@@ -220,6 +220,32 @@ function startIndexing(root: string) {
   setTimeout(step, 250);
 }
 
+/** A sample file in two versions, for the diff editor in the demo. */
+function textsFor(path: string) {
+  const ext = path.split(".").pop() ?? "";
+  if (path.endsWith(".png")) return { path, old: null, new: null, binary: true, tooLarge: false };
+  const rust = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      i % 12 === 0
+        ? `\n/// Handles request number ${i}.\npub fn handle_${i}(state: &State, input: &str) -> Result<usize> {`
+        : i % 12 === 11
+          ? "}"
+          : `    let value_${i} = state.lookup("${i}").unwrap_or(${i});`,
+    ).join("\n");
+  let old: string;
+  if (ext === "md") old = `# GlideGit\n\nA fast Git client.\n\n## Features\n\n- Log with graph\n- Commit panel\n- Branch popup\n`;
+  else if (ext === "css") old = Array.from({ length: 30 }, (_, i) => `.rule-${i} {\n  color: var(--text);\n  padding: ${i}px;\n}`).join("\n");
+  else old = rust(140);
+  let next = old
+    .replace('value_25 = state.lookup("25").unwrap_or(25)', "value_25 = state.lookup_cached(\"25\").unwrap_or_default()")
+    .replace('    let value_70 = state.lookup("70").unwrap_or(70);\n', "")
+    .replace("pub fn handle_96(", "pub(crate) fn handle_96(")
+    .replace("- Branch popup", "- Branch popup\n- Log filters and commit details")
+    .replace("padding: 7px;", "padding: 8px 12px;");
+  next = next.replace("/// Handles request number 120.", "/// Handles request number 120.\n/// Retries once when the cache is cold.");
+  return { path, old, new: next, binary: false, tooLarge: false };
+}
+
 function diffFor(path: string): FileDiff {
   const lines: FileDiff["hunks"][number]["lines"] = [];
   let o = 40;
@@ -452,6 +478,9 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "file_texts":
+      case "commit_file_texts":
+        return sleep(40).then(() => textsFor(a.path as string));
       case "commit_file_diff":
         return diffFor(a.path as string);
       case "log_authors": {

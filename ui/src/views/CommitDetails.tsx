@@ -5,11 +5,11 @@ import { api, errorMessage } from "../api";
 import type { ChangeKind } from "../bindings/ChangeKind";
 import type { CommitDetails } from "../bindings/CommitDetails";
 import type { CommitFile } from "../bindings/CommitFile";
-import type { FileDiff } from "../bindings/FileDiff";
+import type { FileTexts } from "../bindings/FileTexts";
 import { VirtualList } from "../components/VirtualList";
 import { splitPath } from "../lib/format";
 import { useRepo } from "../stores/repo";
-import { DiffBody } from "./DiffView";
+import { TextsDiff } from "./DiffView";
 
 const ROW_H = 24;
 /** Wait this long after the selection settles before asking git. */
@@ -53,7 +53,7 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
   const [details, setDetails] = useState<CommitDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [diff, setDiff] = useState<FileTexts | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
 
   // Load the commit; while flicking through the Log only the last one counts.
@@ -89,7 +89,7 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
     let alive = true;
     setDiffLoading(true);
     api
-      .commitFileDiff(root, current.oid, current.parents[0] ?? null, file.path, file.origPath)
+      .commitFileTexts(root, current.oid, current.parents[0] ?? null, file.path, file.origPath)
       .then((d) => alive && setDiff(d))
       .catch((e) => alive && setError(errorMessage(e)))
       .finally(() => alive && setDiffLoading(false));
@@ -219,9 +219,9 @@ export function CommitDetailsPane({ oid, refs, onJump }: { oid: string | null; r
       </div>
       <div className="cd-right">
         {file ? (
-          <DiffBody
+          <TextsDiff
             path={file.path}
-            diff={diff}
+            texts={diff && diff.path === file.path ? diff : null}
             loading={diffLoading}
             label={`${current.parents[0]?.slice(0, 8) ?? "空"} ↔ ${current.oid.slice(0, 8)}`}
           />

@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-6（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单）已完成，下一步是 M2-7（CodeMirror diff）。
+**当前进度（2026-11-04）**：M0、M1 已完成。M2 进行中：M2-1 至 M2-7（Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff）已完成，下一步是 M2-8（块级 / 行级 stage）。
 
 ## 里程碑总览
 
@@ -81,7 +81,11 @@
   - 重置对话框可选 Soft / Mixed / Keep / Hard 四种模式，选 Hard 还要再确认一次。合并提交做 cherry-pick 或 revert 时，以第一个父提交为基准（`-m 1`）。
   - 新增全局横幅：合并、变基、cherry-pick 或 revert 中途停下时显示，带「中止」和「继续」。仍有冲突时「继续」不可用；继续时不打开编辑器，沿用 git 准备好的提交信息。
   - 新分支名、标签名和提交 id 在传给 git 前检查，不能被当作命令行选项。
-- [ ] M2-7 CodeMirror 6 diff：并排视图、字符级差异、折叠
+- [x] M2-7 CodeMirror 6 diff：并排视图、字符级差异、折叠
+  - 基于 `@codemirror/merge`：并排（MergeView）和统一（unifiedMergeView）两种布局，选择会记住；字符级差异高亮；未改动的区域折叠成「N unchanged lines」，点击展开；F7 / ⇧F7 在修改之间跳转。
+  - 根据文件名按需加载语法高亮（`@codemirror/language-data`），配色取自主题变量，亮色、暗色各一套。CodeMirror 单独打包、首次用到时才加载：主包 296 KB，diff 编辑器 318 KB。
+  - 后端新增「读取文件两侧全文」：工作区直接读磁盘，暂存区和提交用 `git cat-file --batch` 流式读取；单侧超过 8 MB 或含 NUL 字节（二进制）时只返回标记。Changes 视图和提交详情都改用这种方式。
+  - diff 计算超时 1.5 秒后退回较粗的结果，大文件不会卡住界面。
 - [ ] M2-8 块级 / 行级 stage 与 discard（`git apply --cached`）
 - [ ] M2-9 Stash 列表、应用、弹出、查看 diff
 - [ ] M2-10 用 gix 读取热点数据（status、revwalk）；在大仓库上跑基准对比

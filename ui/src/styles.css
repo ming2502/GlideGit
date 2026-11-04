@@ -28,6 +28,19 @@
   --diff-del-gutter: #f8cdcd;
   --diff-hunk-bg: #eef2fc;
 
+  /* Syntax colours in the diff editor (IntelliJ Light). */
+  --syn-keyword: #0033b3;
+  --syn-string: #067d17;
+  --syn-number: #1750eb;
+  --syn-comment: #8c8c8c;
+  --syn-function: #00627a;
+  --syn-type: #000000;
+  --syn-property: #871094;
+  --syn-tag: #0033b3;
+  --syn-meta: #9e880d;
+  --diff-add-strong: #a6dfb0;
+  --diff-del-strong: #f6b7b7;
+
   /* Commit graph, one colour per column (repeats every 8). */
   --graph-0: #3574f0;
   --graph-1: #e66d17;
@@ -70,6 +83,17 @@
     --diff-del-bg: #402a2c;
     --diff-del-gutter: #5e3336;
     --diff-hunk-bg: #2c3445;
+    --syn-keyword: #cf8e6d;
+    --syn-string: #6aab73;
+    --syn-number: #2aacb8;
+    --syn-comment: #7a7e85;
+    --syn-function: #56a8f5;
+    --syn-type: #bcbec4;
+    --syn-property: #c77dbb;
+    --syn-tag: #d5b778;
+    --syn-meta: #b3ae60;
+    --diff-add-strong: #3d6a45;
+    --diff-del-strong: #7a3a3e;
     --graph-0: #548af7;
     --graph-1: #f0883e;
     --graph-2: #5fad65;
@@ -98,6 +122,17 @@
   --diff-del-bg: #402a2c;
   --diff-del-gutter: #5e3336;
   --diff-hunk-bg: #2c3445;
+  --syn-keyword: #cf8e6d;
+  --syn-string: #6aab73;
+  --syn-number: #2aacb8;
+  --syn-comment: #7a7e85;
+  --syn-function: #56a8f5;
+  --syn-type: #bcbec4;
+  --syn-property: #c77dbb;
+  --syn-tag: #d5b778;
+  --syn-meta: #b3ae60;
+  --diff-add-strong: #3d6a45;
+  --diff-del-strong: #7a3a3e;
   --graph-0: #548af7;
   --graph-1: #f0883e;
   --graph-2: #5fad65;
@@ -602,6 +637,127 @@ input {
 }
 .diff-stats .del {
   color: var(--danger);
+}
+.diff-badge {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.diff-nav {
+  display: flex;
+  gap: 2px;
+}
+.icon-btn {
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+}
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.seg button {
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+}
+.seg button.on {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.diff-label {
+  font-size: 12px;
+}
+
+/* CodeMirror diff editor */
+.code-diff {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.code-diff > .cm-editor {
+  flex: 1;
+  min-height: 0;
+}
+.code-diff .cm-mergeView {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.code-diff .cm-mergeView .cm-editor {
+  height: auto;
+}
+.code-diff .cm-mergeViewEditor + .cm-mergeViewEditor {
+  border-left: 1px solid var(--border-strong);
+}
+/* Changed lines: deletions on the old side, insertions on the new side. */
+.code-diff .cm-merge-a .cm-changedLine,
+.code-diff .cm-deletedChunk {
+  background: var(--diff-del-bg);
+}
+.code-diff .cm-merge-b .cm-changedLine,
+.code-diff .cm-inlineChangedLine,
+.code-diff-unified .cm-changedLine {
+  background: var(--diff-add-bg);
+}
+.code-diff .cm-merge-a .cm-changedText,
+.code-diff .cm-deletedChunk .cm-deletedText {
+  background: var(--diff-del-strong);
+  text-decoration: none;
+}
+.code-diff .cm-merge-b .cm-changedText,
+.code-diff-unified .cm-changedText,
+.code-diff .cm-insertedLine .cm-changedText {
+  background: var(--diff-add-strong);
+  text-decoration: none;
+}
+.code-diff .cm-changeGutter {
+  width: 3px;
+  padding: 0;
+}
+.code-diff .cm-merge-a .cm-changedLineGutter,
+.code-diff .cm-deletedLineGutter {
+  background: var(--danger);
+}
+.code-diff .cm-merge-b .cm-changedLineGutter,
+.code-diff-unified .cm-changedLineGutter {
+  background: var(--k-added);
+}
+.code-diff .cm-collapsedLines {
+  padding: 2px 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.code-diff .cm-collapsedLines:hover {
+  color: var(--accent);
 }
 .diff-empty {
   flex: 1;

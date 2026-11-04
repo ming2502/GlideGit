@@ -206,6 +206,22 @@ pub struct CommitDetails {
     pub files: Vec<CommitFile>,
 }
 
+/// Both versions of a file, for the side-by-side diff editor.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileTexts {
+    pub path: String,
+    /// Before the change; `None` when the file did not exist.
+    pub old: Option<String>,
+    /// After the change; `None` when the file was deleted.
+    pub new: Option<String>,
+    /// Either side is binary; no texts are returned then.
+    pub binary: bool,
+    /// Either side is over the size limit; no texts are returned then.
+    pub too_large: bool,
+}
+
 /// One parsed `--progress` update, e.g. `Receiving objects: 45% (450/1000), 1.2 MiB | 2 MiB/s`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

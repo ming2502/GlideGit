@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AskRequest } from "./bindings/AskRequest";
 import type { DiffMode } from "./bindings/DiffMode";
-import type { FileDiff } from "./bindings/FileDiff";
+import type { FileTexts } from "./bindings/FileTexts";
 import type { AuthorCount } from "./bindings/AuthorCount";
 import type { CommitDetails } from "./bindings/CommitDetails";
 import type { LogFilter } from "./bindings/LogFilter";
@@ -49,8 +49,6 @@ export const api = {
   commit: (root: string, message: string, amend: boolean) =>
     invoke<string>("commit", { root, message, amend }),
   lastCommitMessage: (root: string) => invoke<string>("last_commit_message", { root }),
-  diffFile: (root: string, path: string, mode: DiffMode, untracked: boolean) =>
-    invoke<FileDiff>("diff_file", { root, path, mode, untracked }),
   logStatus: (root: string) => invoke<LogStatus>("log_status", { root }),
   logPage: (root: string, start: number, count: number, filter: LogFilter | null) =>
     invoke<LogPage>("log_page", { root, start, count, filter }),
@@ -58,8 +56,10 @@ export const api = {
     invoke<number | null>("log_row_of", { root, oid, filter }),
   logAuthors: (root: string, query: string) => invoke<AuthorCount[]>("log_authors", { root, query }),
   commitDetails: (root: string, oid: string) => invoke<CommitDetails>("commit_details", { root, oid }),
-  commitFileDiff: (root: string, oid: string, parent: string | null, path: string, origPath: string | null) =>
-    invoke<FileDiff>("commit_file_diff", { root, oid, parent, path, origPath }),
+  commitFileTexts: (root: string, oid: string, parent: string | null, path: string, origPath: string | null) =>
+    invoke<FileTexts>("commit_file_texts", { root, oid, parent, path, origPath }),
+  fileTexts: (root: string, path: string, origPath: string | null, mode: DiffMode, untracked: boolean) =>
+    invoke<FileTexts>("file_texts", { root, path, origPath, mode, untracked }),
   checkoutBranch: (root: string, name: string, remote: boolean) =>
     invoke<void>("checkout_branch", { root, name, remote }),
   checkoutDetached: (root: string, oid: string) => invoke<void>("checkout_detached", { root, oid }),

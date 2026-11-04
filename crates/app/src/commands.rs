@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
-    CommitDetails, DiffMode, FileDiff, PullMode, PushPreview, RepoSnapshot, ResetMode,
+    CommitDetails, DiffMode, FileDiff, FileTexts, PullMode, PushPreview, RepoSnapshot, ResetMode,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -246,6 +246,38 @@ pub async fn commit_file_diff(
     let s = session(&state, &root).await?;
     Ok(
         s.read(move |r| r.commit_file_diff(&oid, parent.as_deref(), &path, orig_path.as_deref()))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn file_texts(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    orig_path: Option<String>,
+    mode: DiffMode,
+    untracked: bool,
+) -> CmdResult<FileTexts> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.read(move |r| r.file_texts(&path, orig_path.as_deref(), mode, untracked))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn commit_file_texts(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+    parent: Option<String>,
+    path: String,
+    orig_path: Option<String>,
+) -> CmdResult<FileTexts> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.read(move |r| r.commit_file_texts(&oid, parent.as_deref(), &path, orig_path.as_deref()))
             .await?,
     )
 }

@@ -108,6 +108,8 @@ fn main() {
             commands::log_authors,
             commands::commit_details,
             commands::commit_file_diff,
+            commands::file_texts,
+            commands::commit_file_texts,
             commands::checkout_branch,
             commands::create_branch,
             commands::checkout_detached,

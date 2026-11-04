@@ -580,3 +580,74 @@ fn conflicting_cherry_pick_can_be_aborted_or_continued() {
     assert_eq!(repo.operation(), None);
     assert_eq!(repo.last_commit_message().unwrap(), "main change");
 }
+
+#[test]
+fn file_texts_for_each_side() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "one\n");
+    repo.stage_all().unwrap();
+    let c1 = repo.commit("one", false).unwrap();
+    write(root, "a.txt", "one\nstaged\n");
+    repo.stage(&s(&["a.txt"])).unwrap();
+    write(root, "a.txt", "one\nstaged\nworktree\n");
+
+    let t = repo
+        .file_texts("a.txt", None, DiffMode::Head, false)
+        .unwrap();
+    assert_eq!(t.old.as_deref(), Some("one\n"));
+    assert_eq!(t.new.as_deref(), Some("one\nstaged\nworktree\n"));
+    let t = repo
+        .file_texts("a.txt", None, DiffMode::Staged, false)
+        .unwrap();
+    assert_eq!(t.new.as_deref(), Some("one\nstaged\n"));
+    let t = repo
+        .file_texts("a.txt", None, DiffMode::WorkingTree, false)
+        .unwrap();
+    assert_eq!(t.old.as_deref(), Some("one\nstaged\n"));
+
+    // Untracked and deleted files have one side only.
+    write(root, "new.txt", "fresh\n");
+    let t = repo
+        .file_texts("new.txt", None, DiffMode::Head, true)
+        .unwrap();
+    assert_eq!((t.old, t.new.as_deref()), (None, Some("fresh\n")));
+    repo.stage_all().unwrap();
+    let c2 = repo.commit("two", false).unwrap();
+    fs::remove_file(root.join("new.txt")).unwrap();
+    let t = repo
+        .file_texts("new.txt", None, DiffMode::Head, false)
+        .unwrap();
+    assert_eq!((t.old.as_deref(), t.new), (Some("fresh\n"), None));
+
+    // Commits, including the root commit.
+    let t = repo
+        .commit_file_texts(&c2, Some(&c1), "a.txt", None)
+        .unwrap();
+    assert_eq!(t.old.as_deref(), Some("one\n"));
+    assert_eq!(t.new.as_deref(), Some("one\nstaged\nworktree\n"));
+    let t = repo.commit_file_texts(&c1, None, "a.txt", None).unwrap();
+    assert_eq!((t.old, t.new.as_deref()), (None, Some("one\n")));
+
+    // Binary and oversized files return no text.
+    write(root, "bin.dat", "a\x00b");
+    let t = repo
+        .file_texts("bin.dat", None, DiffMode::Head, true)
+        .unwrap();
+    assert!(t.binary && t.new.is_none());
+    let big = "x".repeat(9 * 1024 * 1024);
+    write(root, "big.txt", &big);
+    let t = repo
+        .file_texts("big.txt", None, DiffMode::Head, true)
+        .unwrap();
+    assert!(t.too_large && t.new.is_none());
+    repo.stage(&s(&["big.txt"])).unwrap();
+    let t = repo
+        .file_texts("big.txt", None, DiffMode::Staged, false)
+        .unwrap();
+    assert!(t.too_large, "index blob over the limit is not loaded");
+
+    assert!(repo
+        .file_texts("../escape", None, DiffMode::Head, true)
+        .is_err());
+}
