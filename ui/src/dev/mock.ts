@@ -1,0 +1,145 @@
+// Browser preview mode: when the UI runs outside Tauri (`pnpm dev` in a normal
+// browser), IPC is served from this in-memory fake repository. Dev-only.
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import type { Branch } from "../bindings/Branch";
+import type { CommitSummary } from "../bindings/CommitSummary";
+import type { FileChange } from "../bindings/FileChange";
+import type { FileDiff } from "../bindings/FileDiff";
+import type { RepoSnapshot } from "../bindings/RepoSnapshot";
+
+const now = Math.floor(Date.now() / 1000);
+
+function branch(name: string, extra: Partial<Branch> = {}): Branch {
+  const isRemote = name.includes("/") && name.startsWith("origin/");
+  return {
+    name,
+    fullRef: isRemote ? `refs/remotes/${name}` : `refs/heads/${name}`,
+    oid: "a1b2c3d4e5f6",
+    upstream: null,
+    upstreamGone: false,
+    ahead: 0,
+    behind: 0,
+    isHead: false,
+    isRemote,
+    commitTime: now - 3600,
+    subject: "subject",
+    ...extra,
+  };
+}
+
+let changes: FileChange[] = [
+  { path: "crates/core/src/session.rs", origPath: null, staged: "modified", unstaged: null, conflicted: false },
+  { path: "crates/git-backend/src/repo.rs", origPath: null, staged: "modified", unstaged: "modified", conflicted: false },
+  { path: "ui/src/views/CommitPanel.tsx", origPath: null, staged: null, unstaged: "modified", conflicted: false },
+  { path: "ui/src/views/LogView.tsx", origPath: "ui/src/views/History.tsx", staged: "renamed", unstaged: null, conflicted: false },
+  { path: "docs/old-notes.md", origPath: null, staged: null, unstaged: "deleted", conflicted: false },
+  { path: "ui/src/dev/mock.ts", origPath: null, staged: "added", unstaged: null, conflicted: false },
+  { path: "scratch/todo.txt", origPath: null, staged: null, unstaged: "untracked", conflicted: false },
+  { path: "assets/banner.png", origPath: null, staged: null, unstaged: "untracked", conflicted: false },
+];
+
+function snapshot(): RepoSnapshot {
+  return {
+    root: "/Users/demo/GlideGit",
+    head: { branch: "feature/commit-panel", oid: "a1b2c3d4", detached: false, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 },
+    operation: null,
+    changes,
+    branches: {
+      local: [
+        branch("feature/commit-panel", { isHead: true, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 }),
+        branch("main", { upstream: "origin/main" }),
+        branch("feature/log-index", { upstream: "origin/feature/log-index", ahead: 4 }),
+        branch("fix/windows-crlf", { upstream: "origin/fix/windows-crlf", upstreamGone: true }),
+      ],
+      remote: [branch("origin/main"), branch("origin/feature/commit-panel"), branch("origin/feature/log-index"), branch("origin/release/0.1")],
+      recent: ["main", "feature/log-index"],
+    },
+  };
+}
+
+const subjects = [
+  "Add RepoSession with serialised writes",
+  "Parse git status porcelain v2",
+  "Merge branch 'feature/branch-popup'",
+  "Branch popup: keyboard navigation",
+  "Virtualised diff view",
+  "Initial commit",
+];
+const log: CommitSummary[] = Array.from({ length: 240 }, (_, i) => ({
+  oid: (i * 2654435761).toString(16).padStart(8, "0").repeat(5).slice(0, 40),
+  parents: i === 2 ? ["p1", "p2"] : ["p1"],
+  authorName: ["Min", "Alex Chen", "Sam"][i % 3],
+  authorEmail: "dev@example.com",
+  authorTime: now - i * 5400,
+  subject: subjects[i % subjects.length],
+  refs: i === 0 ? ["HEAD -> feature/commit-panel"] : i === 2 ? ["origin/feature/commit-panel"] : i === 5 ? ["origin/main", "main", "tag: v0.0.1"] : [],
+}));
+
+function diffFor(path: string): FileDiff {
+  const lines: FileDiff["hunks"][number]["lines"] = [];
+  let o = 40;
+  let n = 40;
+  const src = [
+    ["c", "    pub async fn write<T, F>(&self, f: F) -> Result<T>"],
+    ["c", "    where"],
+    ["d", "        F: FnOnce(&Repo) -> Result<T> + Send,"],
+    ["a", "        F: FnOnce(&Repo) -> glide_git_backend::Result<T> + Send + 'static,"],
+    ["a", "        T: Send + 'static,"],
+    ["c", "    {"],
+    ["c", "        let _guard = self.write_lock.lock().await;"],
+    ["a", "        self.state.writing.fetch_add(1, Ordering::SeqCst);"],
+    ["c", "        let repo = self.repo.clone();"],
+  ] as const;
+  for (const [k, t] of src) {
+    if (k === "c") lines.push({ kind: "context", oldLine: o++, newLine: n++, text: t });
+    else if (k === "d") lines.push({ kind: "deleted", oldLine: o++, newLine: null, text: t });
+    else lines.push({ kind: "added", oldLine: null, newLine: n++, text: t });
+  }
+  return {
+    path,
+    binary: path.endsWith(".png"),
+    truncated: false,
+    added: 3,
+    deleted: 1,
+    hunks: [{ header: "@@ -40,7 +40,9 @@ impl RepoSession {", oldStart: 40, oldLines: 7, newStart: 40, newLines: 9, lines }],
+  };
+}
+
+export function installMock(): void {
+  mockWindows("main");
+  mockIPC((cmd, args) => {
+    const a = (args ?? {}) as Record<string, unknown>;
+    switch (cmd) {
+      case "app_info":
+        return { version: "0.1.0", gitVersion: "2.55.0 (mock)", platform: "macos" };
+      case "plugin:dialog|open":
+        return "/Users/demo/GlideGit";
+      case "open_repo":
+      case "refresh":
+        return snapshot();
+      case "stage":
+      case "unstage": {
+        const paths = a.paths as string[];
+        changes = changes.map((c) =>
+          !paths.includes(c.path)
+            ? c
+            : cmd === "stage"
+              ? { ...c, staged: c.unstaged === "untracked" ? "added" : (c.unstaged ?? c.staged), unstaged: null }
+              : { ...c, unstaged: c.staged === "added" ? "untracked" : (c.staged ?? c.unstaged), staged: null },
+        );
+        return null;
+      }
+      case "diff_file":
+        return diffFor(a.path as string);
+      case "log":
+        return log;
+      case "last_commit_message":
+        return "Add RepoSession with serialised writes";
+      case "commit":
+        changes = changes.filter((c) => !c.staged);
+        return "f00dbabe".repeat(5);
+      default:
+        return null;
+    }
+  }, { shouldMockEvents: true });
+}

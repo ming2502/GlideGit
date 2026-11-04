@@ -1,0 +1,10 @@
+//! GlideGit core: repository sessions, write serialisation, file watching
+//! and snapshot publication. UI-agnostic; the Tauri app is a thin shell on top.
+
+mod error;
+mod manager;
+mod session;
+
+pub use error::{CoreError, Result};
+pub use manager::RepositoryManager;
+pub use session::{is_relevant, RepoSession, SharedSnapshot, DEBOUNCE};

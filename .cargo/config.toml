@@ -1,0 +1,4 @@
+[env]
+# ts-rs: Rust 领域模型导出为前端 TS 类型（运行 `pnpm bindings` 或 `cargo test`）
+TS_RS_EXPORT_DIR = { value = "ui/src/bindings", relative = true }
+TS_RS_LARGE_INT = "number"
