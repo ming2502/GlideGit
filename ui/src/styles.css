@@ -1110,3 +1110,93 @@ input {
 .ask-dialog form .dialog-actions {
   margin-top: 16px;
 }
+
+/* ------------------------------------------------------------- repo tabs */
+.tabbar {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--panel-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.repo-tab {
+  height: 30px;
+  max-width: 260px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 12px;
+  border-radius: 7px 7px 0 0;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+.repo-tab:hover:not(.on) {
+  background: var(--hover);
+}
+.repo-tab.on {
+  background: var(--panel);
+  color: var(--text);
+}
+.tab-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-branch {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--k-modified) 18%, transparent);
+  color: var(--k-modified);
+}
+.tab-spinner {
+  width: 10px;
+  height: 10px;
+}
+.tab-close {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  visibility: hidden;
+}
+.repo-tab:hover .tab-close,
+.repo-tab.on .tab-close {
+  visibility: visible;
+}
+.tab-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.tab-add {
+  height: 26px;
+  width: 26px;
+  margin: 0 0 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  flex: none;
+}
+.tab-add:hover {
+  background: var(--hover);
+  color: var(--text);
+}

@@ -89,7 +89,7 @@ export function Toolbar() {
           onClose={() => setMenu(null)}
           items={[
             { label: "打开仓库…", shortcut: shortcutOf("repo.open"), onClick: () => void pickRepository() },
-            { label: "关闭仓库", onClick: () => void useRepo.getState().closeRepo() },
+            { label: "关闭当前标签", shortcut: shortcutOf("tabs.close"), onClick: () => void useRepo.getState().closeRepo() },
             ...(recent.filter((r) => r !== root).length ? (["separator"] as const) : []),
             ...recent
               .filter((r) => r !== root)
@@ -118,12 +118,16 @@ export function Toolbar() {
 
 function TaskProgress({ task }: { task: Task }) {
   const cancel = useRepo((s) => s.cancelTask);
+  const multi = useRepo((s) => s.tabs.length > 1);
   const p = task.progress;
   const pct = p?.percent ?? null;
   return (
     <span className="sb-task">
       <span className="spinner" />
-      <span className="sb-task-title">{task.title}</span>
+      <span className="sb-task-title">
+        {multi && <span className="muted">{repoName(task.repo)} · </span>}
+        {task.title}
+      </span>
       {p && (
         <span className="muted sb-task-phase">
           {p.phase}

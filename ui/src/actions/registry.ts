@@ -51,6 +51,8 @@ export function useActions(actions: Action[]): void {
 
 interface Chord {
   mod: boolean;
+  /** Literal Ctrl (distinct from `mod` on macOS). */
+  ctrl: boolean;
   shift: boolean;
   alt: boolean;
   key: string;
@@ -60,6 +62,7 @@ function parseChord(s: string): Chord {
   const parts = s.toLowerCase().split("+");
   return {
     mod: parts.includes("mod"),
+    ctrl: parts.includes("ctrl"),
     shift: parts.includes("shift"),
     alt: parts.includes("alt"),
     key: parts[parts.length - 1],
@@ -74,9 +77,12 @@ function eventKey(e: KeyboardEvent): string {
 }
 
 function matches(chord: Chord, e: KeyboardEvent): boolean {
-  const mod = isMac ? e.metaKey : e.ctrlKey;
+  // On Windows/Linux `mod` is Ctrl, so a chord may name either.
+  const wantCtrl = chord.ctrl || (!isMac && chord.mod);
+  const wantMeta = isMac && chord.mod;
   return (
-    chord.mod === mod &&
+    wantCtrl === e.ctrlKey &&
+    wantMeta === e.metaKey &&
     chord.shift === e.shiftKey &&
     chord.alt === e.altKey &&
     chord.key === eventKey(e)
@@ -97,7 +103,7 @@ export function installKeyHandler(): () => void {
       for (const k of a.keys ?? []) {
         const chord = parseChord(k);
         // Plain keys belong to the focused text field.
-        if (inText && !chord.mod && chord.key !== "escape") continue;
+        if (inText && !chord.mod && !chord.ctrl && chord.key !== "escape") continue;
         if (matches(chord, e) && (!a.enabled || a.enabled())) {
           e.preventDefault();
           e.stopPropagation();
@@ -113,6 +119,10 @@ export function installKeyHandler(): () => void {
 
 const MAC_SYMBOLS: Record<string, string> = {
   mod: "⌘",
+  ctrl: "⌃",
+  bracketleft: "[",
+  bracketright: "]",
+  tab: "⇥",
   shift: "⇧",
   alt: "⌥",
   enter: "↩",
@@ -121,6 +131,10 @@ const MAC_SYMBOLS: Record<string, string> = {
 };
 const WIN_NAMES: Record<string, string> = {
   mod: "Ctrl",
+  ctrl: "Ctrl",
+  bracketleft: "[",
+  bracketright: "]",
+  tab: "Tab",
   shift: "Shift",
   alt: "Alt",
   enter: "Enter",

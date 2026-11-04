@@ -39,9 +39,25 @@ let changes: FileChange[] = [
   { path: "assets/banner.png", origPath: null, staged: null, unstaged: "untracked", conflicted: false },
 ];
 
-function snapshot(): RepoSnapshot {
+const MAIN_REPO = "/Users/demo/GlideGit";
+const DEMO_REPOS = [MAIN_REPO, "/Users/demo/website", "/Users/demo/infra"];
+let pickCount = 0;
+
+function snapshot(root: string = MAIN_REPO): RepoSnapshot {
+  if (root !== MAIN_REPO) {
+    // Secondary demo repos: a clean-ish tree on main.
+    return {
+      root,
+      head: { branch: "main", oid: "b0b0b0b0", detached: false, upstream: "origin/main", ahead: 0, behind: 0 },
+      operation: null,
+      changes: root.endsWith("website")
+        ? [{ path: "src/index.html", origPath: null, staged: null, unstaged: "modified", conflicted: false }]
+        : [],
+      branches: { local: [branch("main", { isHead: true, upstream: "origin/main" })], remote: [branch("origin/main")], recent: [] },
+    };
+  }
   return {
-    root: "/Users/demo/GlideGit",
+    root: MAIN_REPO,
     head: { branch: "feature/commit-panel", oid: "a1b2c3d4", detached: false, upstream: "origin/feature/commit-panel", ahead: 2, behind: 1 },
     operation: null,
     changes,
@@ -172,10 +188,12 @@ export function installMock(): void {
           behind: 1,
         };
       case "plugin:dialog|open":
-        return "/Users/demo/GlideGit";
+        // Each "Open…" in the demo picks the next sample repository.
+        return DEMO_REPOS[pickCount++ % DEMO_REPOS.length];
       case "open_repo":
+        return snapshot(a.path as string);
       case "refresh":
-        return snapshot();
+        return snapshot(a.root as string);
       case "stage":
       case "unstage": {
         const paths = a.paths as string[];

@@ -41,4 +41,6 @@ pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
 | Commit / Log 视图 | ⌘0 / ⌘9 | Ctrl+0 / Ctrl+9 |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
+| 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |
+| 关闭仓库标签 | ⌘⌥W | Ctrl+Alt+W |
 | 变更列表：切换 / 勾选 | ↑↓ / 空格 | ↑↓ / Space |

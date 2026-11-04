@@ -19,6 +19,8 @@ export interface Toast {
 export interface Task {
   id: number;
   title: string;
+  /** Repository the task runs in (tasks keep running when you switch tabs). */
+  repo: string;
   startedAt: number;
   /** Remote tasks report git progress and can be cancelled. */
   cancellable: boolean;
@@ -34,7 +36,17 @@ export interface ConfirmRequest {
   resolve: (ok: boolean) => void;
 }
 
+/** Per-repository state kept for every open tab. */
+export interface RepoTab {
+  root: string;
+  snapshot: RepoSnapshot;
+  selectedPath: string | null;
+}
+
 interface RepoState {
+  /** Open repositories, in tab order. Snapshots stay live in background tabs. */
+  tabs: RepoTab[];
+  /** Active tab; `snapshot`/`selectedPath` below mirror it. */
   root: string | null;
   snapshot: RepoSnapshot | null;
   view: View;
@@ -55,7 +67,13 @@ interface RepoState {
   logVersion: number;
 
   openRepo: (path: string) => Promise<void>;
+  /** Close the active tab. */
   closeRepo: () => Promise<void>;
+  closeTab: (root: string) => Promise<void>;
+  switchTab: (root: string) => void;
+  cycleTab: (step: 1 | -1) => void;
+  /** Reopen the tabs from the previous session. */
+  restoreTabs: () => Promise<void>;
   applySnapshot: (root: string, snapshot: RepoSnapshot) => void;
   setView: (v: View) => void;
   select: (path: string | null) => void;
@@ -88,7 +106,13 @@ export function isIncluded(c: FileChange): boolean | "partial" {
   return c.staged != null;
 }
 
+function persistTabs(tabs: RepoTab[], active: string | null) {
+  save("openTabs", tabs.map((t) => t.root));
+  save("activeTab", active);
+}
+
 export const useRepo = create<RepoState>((set, get) => ({
+  tabs: [],
   root: null,
   snapshot: null,
   view: "changes",
@@ -108,19 +132,16 @@ export const useRepo = create<RepoState>((set, get) => ({
   async openRepo(path) {
     try {
       const snapshot = await api.openRepo(path);
-      const prev = get().root;
-      if (prev && prev !== snapshot.root) void api.closeRepo(prev);
-      const recent = [snapshot.root, ...get().recent.filter((r) => r !== snapshot.root)].slice(0, 15);
+      const root = snapshot.root;
+      const recent = [root, ...get().recent.filter((r) => r !== root)].slice(0, 15);
       save("recentRepos", recent);
-      set({
-        root: snapshot.root,
-        snapshot,
-        recent,
-        selectedPath: null,
-        diff: null,
-        pendingStage: {},
-        view: "changes",
-      });
+      set((s) =>
+        s.tabs.some((t) => t.root === root)
+          ? { recent, tabs: s.tabs.map((t) => (t.root === root ? { ...t, snapshot } : t)) }
+          : { recent, tabs: [...s.tabs, { root, snapshot, selectedPath: null }] },
+      );
+      get().switchTab(root);
+      set({ view: "changes" });
     } catch (e) {
       get().toast({ kind: "error", title: "无法打开仓库", detail: errorMessage(e) });
     }
@@ -128,11 +149,70 @@ export const useRepo = create<RepoState>((set, get) => ({
 
   async closeRepo() {
     const root = get().root;
-    if (root) await api.closeRepo(root).catch(() => {});
-    set({ root: null, snapshot: null, selectedPath: null, diff: null });
+    if (root) await get().closeTab(root);
+  },
+
+  async closeTab(root) {
+    const { tabs, root: active } = get();
+    const i = tabs.findIndex((t) => t.root === root);
+    if (i < 0) return;
+    void api.closeRepo(root).catch(() => {});
+    const rest = tabs.filter((t) => t.root !== root);
+    set({ tabs: rest });
+    if (active === root) {
+      const next = rest[Math.min(i, rest.length - 1)];
+      if (next) get().switchTab(next.root);
+      else set({ root: null, snapshot: null, selectedPath: null, diff: null, pendingStage: {} });
+    }
+    persistTabs(get().tabs, get().root);
+  },
+
+  switchTab(root) {
+    const { tabs, root: active, selectedPath } = get();
+    const target = tabs.find((t) => t.root === root);
+    if (!target) return;
+    // Remember the selection of the tab we are leaving.
+    const saved = tabs.map((t) => (t.root === active ? { ...t, selectedPath } : t));
+    diffSeq++; // drop any in-flight diff for the old tab
+    set((s) => ({
+      tabs: saved,
+      root,
+      snapshot: target.snapshot,
+      selectedPath: target.selectedPath,
+      diff: null,
+      diffLoading: false,
+      pendingStage: {},
+      branchPopup: false,
+      logVersion: s.logVersion + 1,
+    }));
+    persistTabs(saved, root);
+    if (target.selectedPath) void get().reloadDiff();
+  },
+
+  cycleTab(step) {
+    const { tabs, root } = get();
+    if (tabs.length < 2) return;
+    const i = tabs.findIndex((t) => t.root === root);
+    get().switchTab(tabs[(i + step + tabs.length) % tabs.length].root);
+  },
+
+  async restoreTabs() {
+    const roots = load<string[]>("openTabs", []);
+    const active = load<string | null>("activeTab", null);
+    // Open all in parallel; repos that moved or were deleted are skipped quietly.
+    const results = await Promise.allSettled(roots.map((r) => api.openRepo(r)));
+    const tabs: RepoTab[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled" && !tabs.some((t) => t.root === r.value.root))
+        tabs.push({ root: r.value.root, snapshot: r.value, selectedPath: null });
+    }
+    if (tabs.length === 0 || get().tabs.length > 0) return;
+    set({ tabs });
+    get().switchTab(tabs.find((t) => t.root === active)?.root ?? tabs[0].root);
   },
 
   applySnapshot(root, snapshot) {
+    set((s) => ({ tabs: s.tabs.map((t) => (t.root === root ? { ...t, snapshot } : t)) }));
     if (root !== get().root) return;
     const { selectedPath } = get();
     const stillThere = selectedPath && snapshot.changes.some((c) => c.path === selectedPath);
@@ -195,7 +275,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     const root = get().root;
     if (!root) return undefined;
     const id = ++seq;
-    set((s) => ({ tasks: [...s.tasks, { id, title, startedAt: Date.now(), cancellable: false }] }));
+    set((s) => ({ tasks: [...s.tasks, { id, title, repo: root, startedAt: Date.now(), cancellable: false }] }));
     try {
       const r = await fn(root);
       if (success) get().toast({ kind: "success", title: success });
@@ -212,7 +292,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     const root = get().root;
     if (!root) return false;
     const id = ++seq;
-    set((s) => ({ tasks: [...s.tasks, { id, title, startedAt: Date.now(), cancellable: true }] }));
+    set((s) => ({ tasks: [...s.tasks, { id, title, repo: root, startedAt: Date.now(), cancellable: true }] }));
     try {
       await fn(root, id);
       if (success) get().toast({ kind: "success", title: success });

@@ -11,17 +11,23 @@ import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
 import { AskpassDialog } from "./views/AskpassDialog";
 import { PushDialog } from "./views/PushDialog";
+import { TabBar } from "./views/TabBar";
 import { Welcome } from "./views/Welcome";
 
 export function App() {
   const root = useRepo((s) => s.root);
   const view = useRepo((s) => s.view);
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [restored, setRestored] = useState(false);
 
   useEffect(() => installKeyHandler(), []);
 
   useEffect(() => {
     api.appInfo().then(setInfo).catch(() => {});
+    void useRepo
+      .getState()
+      .restoreTabs()
+      .finally(() => setRestored(true));
     const un = onSnapshot((r, s) => useRepo.getState().applySnapshot(r, s));
     const unProgress = onTaskProgress((id, p) => useRepo.getState().setTaskProgress(id, p));
     // Diff content can change without a status change; refresh when coming back.
@@ -59,6 +65,25 @@ export function App() {
         st.setBranchPopup(!st.branchPopup);
       },
     },
+    {
+      id: "tabs.next",
+      title: "Next Repository Tab",
+      keys: ["mod+shift+bracketright", "ctrl+tab"],
+      run: () => useRepo.getState().cycleTab(1),
+    },
+    {
+      id: "tabs.prev",
+      title: "Previous Repository Tab",
+      keys: ["mod+shift+bracketleft", "ctrl+shift+tab"],
+      run: () => useRepo.getState().cycleTab(-1),
+    },
+    {
+      id: "tabs.close",
+      title: "Close Repository Tab",
+      keys: ["mod+alt+w"],
+      enabled: () => !!useRepo.getState().root,
+      run: () => void useRepo.getState().closeRepo(),
+    },
     { id: "view.changes", title: "Commit", keys: ["mod+0"], run: () => useRepo.getState().setView("changes") },
     { id: "view.log", title: "Log", keys: ["mod+9"], run: () => useRepo.getState().setView("log") },
     {
@@ -90,11 +115,17 @@ export function App() {
     <div className="app">
       {root ? (
         <>
+          <TabBar />
           <Toolbar />
-          <main className="main">{view === "changes" ? <ChangesLayout /> : <LogView />}</main>
+          {/* Keyed by repo: per-repo view state (commit draft, scroll) resets on tab switch. */}
+          <main className="main" key={root}>
+            {view === "changes" ? <ChangesLayout /> : <LogView />}
+          </main>
         </>
-      ) : (
+      ) : restored ? (
         <Welcome gitVersion={info?.gitVersion ?? ""} />
+      ) : (
+        <div className="main" />
       )}
       <StatusBar gitVersion={info?.gitVersion ?? ""} />
       <BranchPopup />
