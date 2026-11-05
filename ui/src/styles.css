@@ -329,6 +329,170 @@ input {
   display: flex;
   flex-direction: column;
 }
+/* ------------------------------------------------------ interactive rebase */
+.dialog.rb-dialog {
+  width: min(1100px, calc(100vw - 48px));
+  height: min(680px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rb-dialog h3 {
+  margin: 0;
+}
+.rb-dialog h3 .muted {
+  font-weight: normal;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.rb-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+.rb-plan {
+  flex: 1.6;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rb-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-strong);
+}
+.rb-hint {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.rb-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  outline: none;
+}
+.rb-list:focus {
+  border-color: var(--accent);
+}
+.rb-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.rb-row.selected {
+  background: var(--selection-inactive);
+}
+.rb-list:focus .rb-row.selected {
+  background: var(--selection);
+}
+.rb-row.drop-above {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.rb-row.drop-below {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.rb-handle {
+  cursor: grab;
+  padding: 0 2px;
+  color: var(--muted);
+  line-height: 22px;
+  user-select: none;
+}
+.rb-action {
+  flex: none;
+  width: 118px;
+  height: 22px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+.rb-hash {
+  flex: none;
+  line-height: 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rb-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 22px;
+}
+.rb-subject {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rb-message {
+  height: auto;
+  padding: 4px 6px;
+  resize: vertical;
+  line-height: 1.4;
+}
+.rb-meta {
+  flex: none;
+  font-size: 12px;
+  line-height: 22px;
+}
+.rb-drop .rb-subject,
+.rb-drop .rb-hash {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.rb-squash .rb-subject,
+.rb-fixup .rb-subject {
+  padding-left: 14px;
+  position: relative;
+}
+.rb-squash .rb-subject::before,
+.rb-fixup .rb-subject::before {
+  content: "↳";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+.rb-result {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+}
+.rb-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+}
+.rb-base .rb-dot {
+  border-color: var(--muted);
+}
+.rb-sub {
+  font-size: 12px;
+}
+.rb-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rb-footer .spacer {
+  flex: 1;
+}
+.rb-error {
+  color: var(--danger);
+}
+
 /* ------------------------------------------------------------ merge tool */
 .mt-overlay {
   position: fixed;

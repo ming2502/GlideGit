@@ -3,6 +3,7 @@ import { api, errorMessage, isCancelled, type PullMode } from "../api";
 import type { Progress } from "../bindings/Progress";
 import type { DiffMode } from "../bindings/DiffMode";
 import type { FileChange } from "../bindings/FileChange";
+import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileTexts } from "../bindings/FileTexts";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 import { load, save } from "../lib/storage";
@@ -67,6 +68,8 @@ interface RepoState {
   stashDialog: boolean;
   /** Conflicted file open in the merge tool. */
   mergePath: string | null;
+  /** Commit the interactive rebase dialog starts from. */
+  rebaseFrom: CommitSummary | null;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -94,6 +97,7 @@ interface RepoState {
   setPushDialog: (open: boolean) => void;
   setStashDialog: (open: boolean) => void;
   setMergePath: (path: string | null) => void;
+  setRebaseFrom: (commit: CommitSummary | null) => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
@@ -136,6 +140,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   pushDialog: false,
   stashDialog: false,
   mergePath: null,
+  rebaseFrom: null,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -325,6 +330,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   setPushDialog: (pushDialog) => set({ pushDialog }),
   setStashDialog: (stashDialog) => set({ stashDialog }),
   setMergePath: (mergePath) => set({ mergePath }),
+  setRebaseFrom: (rebaseFrom) => set({ rebaseFrom }),
 
   toast(t) {
     const id = ++seq;

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
-    CommitDetails, ConflictSide, ConflictTexts, DiffMode, FileDiff, FileTexts, PullMode,
-    PushPreview, RepoSnapshot, ResetMode, StashEntry, StashOptions,
+    CommitDetails, CommitSummary, ConflictSide, ConflictTexts, DiffMode, FileDiff, FileTexts,
+    PullMode, PushPreview, RebaseStep, RepoSnapshot, ResetMode, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -470,6 +470,31 @@ pub async fn reset(
 pub async fn abort_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     Ok(s.write(|r| r.abort_operation()).await?)
+}
+
+#[tauri::command]
+pub async fn rebase_plan(
+    state: State<'_, AppState>,
+    root: String,
+    oid: String,
+) -> CmdResult<Vec<CommitSummary>> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.rebase_plan(&oid)).await?)
+}
+
+#[tauri::command]
+pub async fn interactive_rebase(
+    state: State<'_, AppState>,
+    root: String,
+    from: String,
+    steps: Vec<RebaseStep>,
+    autostash: bool,
+) -> CmdResult<bool> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.write(move |r| r.interactive_rebase(&from, &steps, autostash))
+            .await?,
+    )
 }
 
 #[tauri::command]

@@ -259,6 +259,34 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// What to do with a commit in an interactive rebase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum RebaseAction {
+    Pick,
+    /// Pick with a new message (`message`).
+    Reword,
+    /// Pick, then stop so the commit can be amended.
+    Edit,
+    /// Meld into the previous commit, keeping both messages.
+    Squash,
+    /// Meld into the previous commit, dropping this message.
+    Fixup,
+    Drop,
+}
+
+/// One line of an interactive rebase plan, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RebaseStep {
+    pub action: RebaseAction,
+    pub oid: String,
+    /// New message for `Reword`.
+    pub message: Option<String>,
+}
+
 /// The three versions of a conflicted file, for the merge tool.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

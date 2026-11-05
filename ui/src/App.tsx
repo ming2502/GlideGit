@@ -10,6 +10,7 @@ import { CommitPanel } from "./views/CommitPanel";
 import { DiffView } from "./views/DiffView";
 import { LogView } from "./views/LogView";
 import { StashDialog, StashView } from "./views/StashView";
+import { RebaseDialog } from "./views/RebaseDialog";
 
 // The merge tool brings CodeMirror; load it when first needed.
 const MergeTool = lazy(() => import("./views/MergeTool").then((m) => ({ default: m.MergeTool })));
@@ -146,6 +147,7 @@ export function App() {
       <BranchPopup />
       <PushDialog />
       <StashDialog />
+      <RebaseDialog />
       {mergePath && (
         <Suspense fallback={null}>
           <MergeTool />

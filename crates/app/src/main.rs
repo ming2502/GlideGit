@@ -127,6 +127,8 @@ fn main() {
             commands::abort_operation,
             commands::continue_operation,
             commands::skip_operation,
+            commands::rebase_plan,
+            commands::interactive_rebase,
             commands::delete_branch,
             commands::fetch,
             commands::pull,

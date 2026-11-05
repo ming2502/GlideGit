@@ -1111,3 +1111,202 @@ fn merge_cannot_skip() {
     assert!(info.commit.unwrap().ends_with("their change"));
     assert!(matches!(repo.skip_operation(), Err(GitError::Invalid(_))));
 }
+
+fn subjects(repo: &Repo, n: usize) -> Vec<String> {
+    repo.log(None, n)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.subject)
+        .collect()
+}
+
+/// base + c1..c5, each adding its own file.
+fn linear_repo() -> (tempfile::TempDir, Repo, Vec<String>) {
+    let (dir, repo) = new_repo();
+    let mut oids = Vec::new();
+    for (i, name) in ["base", "c1", "c2", "c3", "c4", "c5"].iter().enumerate() {
+        write(dir.path(), &format!("{name}.txt"), &format!("{i}\n"));
+        repo.stage_all().unwrap();
+        oids.push(repo.commit(name, false).unwrap());
+    }
+    (dir, repo, oids)
+}
+
+fn step(action: RebaseAction, oid: &str) -> RebaseStep {
+    RebaseStep {
+        action,
+        oid: oid.to_string(),
+        message: None,
+    }
+}
+
+#[test]
+fn interactive_rebase_reorders_rewords_squashes_and_drops() {
+    let (dir, repo, oids) = linear_repo();
+    let plan = repo.rebase_plan(&oids[1]).unwrap();
+    assert_eq!(
+        plan.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(),
+        ["c1", "c2", "c3", "c4", "c5"]
+    );
+
+    // c3 left out: the plan must be a permutation of the branch's commits.
+    let missing = [
+        step(RebaseAction::Pick, &oids[2]),
+        step(RebaseAction::Pick, &oids[1]),
+        step(RebaseAction::Pick, &oids[4]),
+        step(RebaseAction::Pick, &oids[5]),
+    ];
+    assert!(matches!(
+        repo.interactive_rebase(&oids[1], &missing, false),
+        Err(GitError::Invalid(_))
+    ));
+    assert_eq!(repo.operation(), None);
+
+    // c2 first, then c1 with c4 squashed in, then c3 reworded with c5 fixed up.
+
+    let steps = [
+        step(RebaseAction::Pick, &oids[2]),
+        step(RebaseAction::Pick, &oids[1]),
+        step(RebaseAction::Squash, &oids[4]),
+        RebaseStep {
+            action: RebaseAction::Reword,
+            oid: oids[3].clone(),
+            message: Some("c3 renamed\n\nWith a body.".into()),
+        },
+        step(RebaseAction::Fixup, &oids[5]),
+    ];
+    repo.interactive_rebase(&oids[1], &steps, false).unwrap();
+    assert_eq!(repo.operation(), None);
+    assert_eq!(subjects(&repo, 4), ["c3 renamed", "c1", "c2", "base"]);
+    assert_eq!(
+        repo.last_commit_message().unwrap(),
+        "c3 renamed\n\nWith a body."
+    );
+    // Squash kept both messages; every file is still there.
+    let c1 = repo.log(None, 3).unwrap()[1].clone();
+    let msg = repo
+        .cli()
+        .run(
+            dir.path(),
+            &["log", "-1", "--format=%B", &c1.oid],
+            RunOptions::read(),
+        )
+        .unwrap()
+        .stdout_str()
+        .into_owned();
+    assert!(msg.contains("c1") && msg.contains("c4"), "{msg}");
+    for f in ["c1", "c2", "c3", "c4", "c5"] {
+        assert!(dir.path().join(format!("{f}.txt")).exists(), "{f}");
+    }
+}
+
+#[test]
+fn interactive_rebase_drop_edit_root_and_refusals() {
+    let (dir, repo, oids) = linear_repo();
+    // Drop c4 and c5.
+    let steps: Vec<_> = oids[3..]
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            step(
+                if i == 0 {
+                    RebaseAction::Pick
+                } else {
+                    RebaseAction::Drop
+                },
+                o,
+            )
+        })
+        .collect();
+    repo.interactive_rebase(&oids[3], &steps, false).unwrap();
+    assert_eq!(subjects(&repo, 2), ["c3", "c2"]);
+    assert!(!dir.path().join("c4.txt").exists());
+
+    // `edit` stops; the banner's Continue finishes it.
+    let plan = repo.rebase_plan(&oids[2]).unwrap();
+    let steps = [
+        step(RebaseAction::Edit, &plan[0].oid),
+        step(RebaseAction::Pick, &plan[1].oid),
+    ];
+    let finished = repo
+        .interactive_rebase(&plan[0].oid, &steps, false)
+        .unwrap();
+    assert!(!finished, "stopped at edit");
+    assert_eq!(repo.operation(), Some(RepoOperation::Rebase));
+    let info = repo.operation_info().unwrap();
+    assert_eq!((info.step, info.total), (Some(1), Some(2)));
+    repo.continue_operation().unwrap();
+    assert_eq!(repo.operation(), None);
+
+    // From the root commit: reword it.
+    let plan = repo.rebase_plan(&oids[0]).unwrap();
+    assert_eq!(plan[0].subject, "base");
+    let mut steps: Vec<_> = plan
+        .iter()
+        .map(|c| step(RebaseAction::Pick, &c.oid))
+        .collect();
+    steps[0] = RebaseStep {
+        action: RebaseAction::Reword,
+        oid: plan[0].oid.clone(),
+        message: Some("root".into()),
+    };
+    repo.interactive_rebase(&plan[0].oid, &steps, false)
+        .unwrap();
+    assert_eq!(subjects(&repo, 10).last().unwrap(), "root");
+
+    // Refusals: squash first, a dirty tree without autostash, merges.
+    let plan = repo
+        .rebase_plan(&repo.log(None, 2).unwrap()[1].oid)
+        .unwrap();
+    let squash_first = [
+        step(RebaseAction::Squash, &plan[0].oid),
+        step(RebaseAction::Pick, &plan[1].oid),
+    ];
+    assert!(matches!(
+        repo.interactive_rebase(&plan[0].oid, &squash_first, false),
+        Err(GitError::Invalid(_))
+    ));
+    write(dir.path(), "c1.txt", "dirty\n");
+    let swap = [
+        step(RebaseAction::Pick, &plan[1].oid),
+        step(RebaseAction::Pick, &plan[0].oid),
+    ];
+    assert!(repo.interactive_rebase(&plan[0].oid, &swap, false).is_err());
+    assert_eq!(repo.operation(), None);
+    let plan = repo
+        .rebase_plan(&repo.log(None, 2).unwrap()[1].oid)
+        .unwrap();
+    let swap = [
+        step(RebaseAction::Pick, &plan[1].oid),
+        step(RebaseAction::Pick, &plan[0].oid),
+    ];
+    repo.interactive_rebase(&plan[0].oid, &swap, true).unwrap();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("c1.txt")).unwrap(),
+        "dirty\n",
+        "autostash restored"
+    );
+}
+
+#[test]
+fn rebase_plan_refuses_merges_and_foreign_commits() {
+    let (_dir, repo) = conflicted_repo();
+    repo.abort_operation().unwrap();
+    let base = repo.log(None, 3).unwrap()[1].oid.clone();
+    let side = repo
+        .cli()
+        .run(repo.root(), &["rev-parse", "other"], RunOptions::read())
+        .unwrap()
+        .stdout_str()
+        .trim()
+        .to_string();
+    assert!(repo.rebase_plan(&side).is_err(), "not an ancestor of HEAD");
+    repo.cli()
+        .run(
+            repo.root(),
+            &["merge", "-q", "-s", "ours", "-m", "merge", "other"],
+            RunOptions::write(),
+        )
+        .unwrap();
+    assert!(repo.rebase_plan(&base).is_err(), "merge in range");
+}

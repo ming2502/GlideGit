@@ -6,6 +6,7 @@ import type { DiffMode } from "./bindings/DiffMode";
 import type { FileTexts } from "./bindings/FileTexts";
 import type { AuthorCount } from "./bindings/AuthorCount";
 import type { CommitDetails } from "./bindings/CommitDetails";
+import type { CommitSummary } from "./bindings/CommitSummary";
 import type { ConflictSide } from "./bindings/ConflictSide";
 import type { ConflictTexts } from "./bindings/ConflictTexts";
 import type { LogFilter } from "./bindings/LogFilter";
@@ -14,6 +15,7 @@ import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
+import type { RebaseStep } from "./bindings/RebaseStep";
 import type { ResetMode } from "./bindings/ResetMode";
 import type { StashEntry } from "./bindings/StashEntry";
 import type { StashOptions } from "./bindings/StashOptions";
@@ -90,6 +92,9 @@ export const api = {
   abortOperation: (root: string) => invoke<void>("abort_operation", { root }),
   continueOperation: (root: string) => invoke<void>("continue_operation", { root }),
   skipOperation: (root: string) => invoke<void>("skip_operation", { root }),
+  rebasePlan: (root: string, oid: string) => invoke<CommitSummary[]>("rebase_plan", { root, oid }),
+  interactiveRebase: (root: string, from: string, steps: RebaseStep[], autostash: boolean) =>
+    invoke<boolean>("interactive_rebase", { root, from, steps, autostash }),
   createBranch: (root: string, name: string, start: string | null, checkout: boolean) =>
     invoke<void>("create_branch", { root, name, start, checkout }),
   deleteBranch: (root: string, name: string, force: boolean) =>

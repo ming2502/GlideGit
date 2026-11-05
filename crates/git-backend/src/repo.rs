@@ -430,6 +430,150 @@ impl Repo {
         Some(d)
     }
 
+    /// The commits an interactive rebase "from `oid`" covers: `oid` itself
+    /// and everything after it up to HEAD, oldest first. Refused when `oid`
+    /// is not an ancestor of HEAD or the range contains merge commits
+    /// (rewriting them would flatten the history).
+    pub fn rebase_plan(&self, oid: &str) -> Result<Vec<CommitSummary>> {
+        check_oid(oid)?;
+        let ancestor = self
+            .cli
+            .run(
+                &self.root,
+                &["merge-base", "--is-ancestor", oid, "HEAD"],
+                RunOptions::read(),
+            )
+            .is_ok();
+        if !ancestor {
+            return Err(GitError::Invalid(
+                "this commit is not part of the current branch".into(),
+            ));
+        }
+        let range = format!("{oid}^..HEAD");
+        let root = !self.has_parent(oid);
+        let mut args = vec!["log", "--reverse", parse::LOG_FORMAT, "--decorate=short"];
+        if root {
+            args.push("HEAD");
+        } else {
+            args.push(&range);
+        }
+        args.push("--");
+        let commits = parse::parse_log(&self.read(&args)?);
+        if commits.iter().any(|c| c.parents.len() > 1) {
+            return Err(GitError::Invalid(
+                "the range contains merge commits; interactive rebase would flatten them".into(),
+            ));
+        }
+        Ok(commits)
+    }
+
+    fn has_parent(&self, oid: &str) -> bool {
+        self.cli
+            .run(
+                &self.root,
+                &["rev-parse", "--verify", "-q", &format!("{oid}^")],
+                RunOptions::read(),
+            )
+            .is_ok()
+    }
+
+    /// Run an interactive rebase of the commits from `from` (inclusive) to
+    /// HEAD with `steps` (oldest first): a permutation of
+    /// [`Repo::rebase_plan`]'s commits with an action each.
+    ///
+    /// The todo list is written up front and handed to git through
+    /// `GIT_SEQUENCE_EDITOR`; rewording is `pick` + `exec git commit --amend
+    /// -F <file>`, so no editor ever opens. Stops (with an error) on
+    /// conflicts or `edit`; the operation banner takes it from there.
+    /// Returns whether the rebase finished (false: it stopped part-way).
+    pub fn interactive_rebase(
+        &self,
+        from: &str,
+        steps: &[RebaseStep],
+        autostash: bool,
+    ) -> Result<bool> {
+        let plan = self.rebase_plan(from)?;
+        let mut want: Vec<&str> = plan.iter().map(|c| c.oid.as_str()).collect();
+        let mut got: Vec<&str> = steps.iter().map(|s| s.oid.as_str()).collect();
+        want.sort_unstable();
+        got.sort_unstable();
+        if want != got {
+            return Err(GitError::Invalid(
+                "the rebase plan does not match the current branch; reload it".into(),
+            ));
+        }
+        match steps.iter().find(|s| s.action != RebaseAction::Drop) {
+            Some(first) if matches!(first.action, RebaseAction::Squash | RebaseAction::Fixup) => {
+                return Err(GitError::Invalid(
+                    "the first commit cannot be squashed: there is nothing before it".into(),
+                ));
+            }
+            _ => {}
+        }
+        if steps.iter().all(|s| s.action == RebaseAction::Drop) {
+            return Err(GitError::Invalid(
+                "dropping every commit is not supported here; use reset".into(),
+            ));
+        }
+
+        // Scratch files live in the git dir; the previous run's are removed.
+        let scratch = self.git_dir.join("glidegit-rebase");
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch)?;
+        let quote = |p: &Path| {
+            let s = p.to_string_lossy().replace('\\', "/");
+            format!("'{}'", s.replace('\'', "'\\''"))
+        };
+        let mut todo = String::new();
+        for (i, s) in steps.iter().enumerate() {
+            check_oid(&s.oid)?;
+            let word = match s.action {
+                RebaseAction::Pick | RebaseAction::Reword => "pick",
+                RebaseAction::Edit => "edit",
+                RebaseAction::Squash => "squash",
+                RebaseAction::Fixup => "fixup",
+                RebaseAction::Drop => "drop",
+            };
+            todo.push_str(&format!("{word} {}\n", s.oid));
+            if s.action == RebaseAction::Reword {
+                let msg = s.message.as_deref().map(str::trim).unwrap_or("");
+                if msg.is_empty() {
+                    return Err(GitError::Invalid(
+                        "a reworded commit needs a message".into(),
+                    ));
+                }
+                let file = scratch.join(format!("msg-{i}.txt"));
+                std::fs::write(&file, format!("{msg}\n"))?;
+                todo.push_str(&format!(
+                    "exec git commit --amend --allow-empty --quiet --cleanup=strip -F {}\n",
+                    quote(&file)
+                ));
+            }
+        }
+        let todo_file = scratch.join("todo");
+        std::fs::write(&todo_file, todo)?;
+
+        let mut args = vec!["rebase", "--interactive"];
+        if autostash {
+            args.push("--autostash");
+        }
+        let base = format!("{from}^");
+        if self.has_parent(from) {
+            args.push(&base);
+        } else {
+            args.push("--root");
+        }
+        self.cli.run(
+            &self.root,
+            &args,
+            RunOptions::write()
+                .env("GIT_SEQUENCE_EDITOR", &format!("cp {}", quote(&todo_file)))
+                // Squash keeps git's combined message; nothing to edit.
+                .env("GIT_EDITOR", "true"),
+        )?;
+        Ok(self.operation().is_none())
+    }
+
     /// Skip the commit the rebase / cherry-pick / revert stopped at.
     pub fn skip_operation(&self) -> Result<()> {
         let cmd = match self.operation() {

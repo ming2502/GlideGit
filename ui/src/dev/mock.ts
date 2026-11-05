@@ -512,6 +512,14 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "rebase_plan": {
+        const i = parseInt(String(a.oid).slice(8), 16) || 0;
+        if (i > 12) throw { kind: "invalid", message: "the range contains merge commits; interactive rebase would flatten them" };
+        // Oldest first, from the chosen commit up to HEAD.
+        return Array.from({ length: i + 1 }, (_, k) => ({ ...mockCommit(i - k), parents: [mockOid(i - k + 1)] }));
+      }
+      case "interactive_rebase":
+        return sleep(400).then(() => (publish(), !(a.steps as { action: string }[]).some((s) => s.action === "edit")));
       case "conflict_texts": {
         const base = rustSample();
         const ours = base

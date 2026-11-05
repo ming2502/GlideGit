@@ -258,6 +258,11 @@ export function LogView() {
       },
       "separator",
       {
+        label: "从此提交开始交互式变基…",
+        disabled: !!snapshot?.operation,
+        onClick: () => useRepo.getState().setRebaseFrom(c),
+      },
+      {
         label: currentBranch ? `将 ${currentBranch} 重置到此处…` : "将 HEAD 重置到此处…",
         disabled: !!snapshot?.operation,
         onClick: () => setDialog({ kind: "reset", commit: c }),
