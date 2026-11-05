@@ -477,6 +477,9 @@ fn main() {
         std::fs::write(p, &md).unwrap();
     }
     println!("\n{md}");
+    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        annotate(&report);
+    }
     let failed = report.checks.iter().filter(|c| !c.pass).count();
     if failed > 0 && args.fail {
         eprintln!("{failed} check(s) over target");
@@ -506,4 +509,21 @@ fn markdown(r: &Report) -> String {
         }
     }
     s
+}
+
+/// GitHub Actions annotations: one line per check, so results show on the
+/// run page (and through the API) without opening the logs.
+fn annotate(r: &Report) {
+    for c in &r.checks {
+        let level = if c.pass { "notice" } else { "error" };
+        println!(
+            "::{level} title=perf {}: {}::{:.1} ms (target {} ms x {}) {}",
+            r.os,
+            c.id,
+            c.value_ms,
+            c.target_ms,
+            r.slack,
+            c.note.replace('\n', " ")
+        );
+    }
 }
