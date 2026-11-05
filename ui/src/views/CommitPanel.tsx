@@ -127,7 +127,7 @@ export function CommitPanel() {
     const ok = await ask({
       title: "Rollback Changes",
       message:
-        `将 ${names} 恢复到 HEAD 版本，本地修改会丢失。` +
+        `将 ${names} 恢复到 HEAD 版本（之后可在撤销中心恢复）。` +
         (untracked.length ? `\n其中 ${untracked.length} 个未跟踪文件将被删除。` : ""),
       confirmLabel: "Rollback",
       danger: true,

@@ -2430,3 +2430,92 @@ body.resizing-v * {
   background: var(--hover);
   color: var(--text);
 }
+
+/* ---------------------------------------------------------- undo center */
+.undo-center {
+  width: 560px;
+}
+.uc-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.uc-title .muted {
+  font-size: 12px;
+}
+.uc-list {
+  outline: none;
+}
+.uc-empty {
+  padding: 24px 16px;
+  text-align: center;
+  line-height: 1.6;
+}
+.uc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.uc-item.active {
+  background: var(--selection);
+}
+.uc-item.undone .uc-op-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.uc-icon {
+  width: 18px;
+  flex: none;
+  text-align: center;
+  color: var(--muted);
+}
+.uc-commit,
+.uc-amend {
+  color: var(--k-added);
+}
+.uc-reset,
+.uc-rollback,
+.uc-discard {
+  color: var(--danger);
+}
+.uc-push,
+.uc-pull {
+  color: var(--accent);
+}
+.uc-text {
+  flex: 1;
+  min-width: 0;
+}
+.uc-name {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.uc-op-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uc-time {
+  flex: none;
+  font-size: 11px;
+}
+.uc-detail {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uc-undo {
+  flex: none;
+  visibility: hidden;
+}
+.uc-item.active .uc-undo {
+  visibility: visible;
+}

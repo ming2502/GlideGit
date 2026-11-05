@@ -139,6 +139,8 @@ fn main() {
             commands::pull,
             commands::push,
             commands::push_preview,
+            commands::operation_log,
+            commands::undo_operation,
             commands::cancel_task,
             commands::askpass_respond,
         ])

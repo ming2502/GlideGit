@@ -18,6 +18,7 @@ import type { LogPage } from "./bindings/LogPage";
 import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
+import type { OpEntry } from "./bindings/OpEntry";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 import type { RebaseStep } from "./bindings/RebaseStep";
 import type { ResetMode } from "./bindings/ResetMode";
@@ -116,6 +117,8 @@ export const api = {
   push: (root: string, forceWithLease: boolean, taskId: number) =>
     invoke<void>("push", { root, forceWithLease, taskId }),
   pushPreview: (root: string) => invoke<PushPreview>("push_preview", { root }),
+  operationLog: (root: string) => invoke<OpEntry[]>("operation_log", { root }),
+  undoOperation: (root: string, id: number) => invoke<string>("undo_operation", { root, id }),
   cancelTask: (taskId: number) => invoke<boolean>("cancel_task", { taskId }),
   askpassRespond: (id: number, answer: string | null) => invoke<boolean>("askpass_respond", { id, answer }),
 };

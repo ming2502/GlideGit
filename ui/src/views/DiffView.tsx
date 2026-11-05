@@ -33,7 +33,7 @@ export function DiffView() {
           onDiscard: async (content, index) => {
             const ok = await ask({
               title: "丢弃这块修改？",
-              message: `${path} 中的这部分改动将还原为 HEAD 的内容，无法撤销。`,
+              message: `${path} 中的这部分改动将还原为 HEAD 的内容（可在撤销中心恢复）。`,
               confirmLabel: "丢弃",
               danger: true,
             });

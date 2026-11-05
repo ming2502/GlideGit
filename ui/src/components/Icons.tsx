@@ -33,6 +33,11 @@ export const PushIcon = () => (
     <path d="M8 13.5v-9M4.5 8 8 4.5 11.5 8" />
   </svg>
 );
+export const UndoIcon = () => (
+  <svg {...base}>
+    <path d="M5.5 3.5 2.5 6.5l3 3M2.8 6.5H10a3.5 3.5 0 0 1 0 7H7" />
+  </svg>
+);
 export const RefreshIcon = () => (
   <svg {...base}>
     <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.8v2.6h-2.6" />

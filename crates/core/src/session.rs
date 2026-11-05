@@ -12,15 +12,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use glide_git_backend::{CancelToken, GitCli, Repo, RepoSnapshot};
+use glide_git_backend::{CancelToken, GitCli, GitError, Repo, RepoSnapshot};
 use glide_log_index::{
     AuthorCount, IndexError, LogFilter, LogIndex, LogPage, LogStatus, UpdateKind,
 };
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{watch, Mutex, Notify};
 
-use crate::cache::SnapshotCache;
+use crate::cache::{fnv1a, SnapshotCache};
 use crate::error::{CoreError, Result};
+use crate::oplog::{self, Context, OpEntry, OpKind, OpLog, OpMeta, Saved};
 
 /// Quiet period used to coalesce bursts of file-system events.
 pub const DEBOUNCE: Duration = Duration::from_millis(150);
@@ -61,6 +62,8 @@ pub struct RepoSession {
     log: Option<Arc<LogDriver>>,
     /// Last snapshot on disk, for an instant start next time.
     cache: Option<Arc<SnapshotCache>>,
+    /// Recorded operations, for undo.
+    oplog: Arc<StdMutex<OpLog>>,
     _watcher: Option<RecommendedWatcher>,
 }
 
@@ -112,6 +115,14 @@ impl RepoSession {
             }
             None => None,
         };
+        let oplog_file = cache_dir.as_deref().map(|d| {
+            let root = repo.root().to_string_lossy();
+            d.join("oplog")
+                .join(format!("{:016x}.jsonl", fnv1a(root.as_bytes())))
+        });
+        let oplog = Arc::new(StdMutex::new(
+            tokio::task::spawn_blocking(move || OpLog::open(oplog_file)).await?,
+        ));
         let log = match cache_dir.map(|d| d.join("log-index")) {
             Some(dir) => {
                 let root = repo.root().to_path_buf();
@@ -162,6 +173,7 @@ impl RepoSession {
             tx,
             log,
             cache,
+            oplog,
             _watcher: watcher,
         });
         match cached {
@@ -275,6 +287,126 @@ impl RepoSession {
         }
         Ok(result??)
     }
+}
+
+impl RepoSession {
+    /// Run a mutating operation and record it in the operation log, with how
+    /// to undo it (see [`crate::oplog`]).
+    pub async fn write_op<T, F>(&self, meta: OpMeta, f: F) -> Result<T>
+    where
+        F: FnOnce(&Repo) -> glide_git_backend::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let log = self.oplog.clone();
+        self.write(move |repo| record(repo, &log, meta, f)).await
+    }
+
+    /// [`RepoSession::remote`], recorded in the operation log.
+    pub async fn remote_op<T, F>(&self, touches_worktree: bool, meta: OpMeta, f: F) -> Result<T>
+    where
+        F: FnOnce(&Repo) -> glide_git_backend::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let log = self.oplog.clone();
+        self.remote(touches_worktree, move |repo| record(repo, &log, meta, f))
+            .await
+    }
+
+    /// Recorded operations, newest first.
+    pub fn operations(&self) -> Vec<OpEntry> {
+        self.oplog.lock().unwrap().entries()
+    }
+
+    /// Undo a recorded operation, if the repository is still where it left
+    /// things. Returns what was done.
+    pub async fn undo(&self, id: u64) -> Result<String> {
+        let log = self.oplog.clone();
+        self.write(move |repo| {
+            let entry = log
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .ok_or_else(|| GitError::Invalid("没有这条操作记录".into()))?;
+            if entry.undone {
+                return Err(GitError::Invalid("这个操作已经撤销过了".into()));
+            }
+            if entry.steps.is_empty() {
+                return Err(GitError::Invalid(
+                    entry.blocked.unwrap_or_else(|| "这个操作无法撤销".into()),
+                ));
+            }
+            oplog::check(repo, &entry.steps).map_err(GitError::Invalid)?;
+            let what = entry.undo.clone().unwrap_or_default();
+            let meta = OpMeta::new(OpKind::Undo, format!("撤销：{}", entry.title));
+            record(repo, &log, meta, |r| oplog::run(r, &entry.steps))?;
+            log.lock().unwrap().mark_undone(id);
+            Ok(what)
+        })
+        .await
+    }
+}
+
+/// Run `f`, comparing the refs before and after, and log it.
+fn record<T>(
+    repo: &Repo,
+    log: &StdMutex<OpLog>,
+    meta: OpMeta,
+    f: impl FnOnce(&Repo) -> glide_git_backend::Result<T>,
+) -> glide_git_backend::Result<T> {
+    let before = repo.refs_state();
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut saved = match &meta.backup {
+        Some(b) => {
+            let id = log.lock().unwrap().next_id();
+            let dir = repo
+                .git_dir()
+                .join("glidegit-backup")
+                .join(format!("{time}-{id}"));
+            oplog::take_backup(repo, b, &dir)?
+        }
+        None => Saved::default(),
+    };
+    let result = f(repo);
+    let (Ok(before), Ok(after)) = (before, repo.refs_state()) else {
+        return result;
+    };
+    oplog::seal_backup(repo, &mut saved);
+    let ctx = Context {
+        in_progress: repo.operation().is_some(),
+        orig_head: std::fs::read_to_string(repo.git_dir().join("ORIG_HEAD"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() >= 40),
+    };
+    let changed = before != after || ctx.in_progress || !saved.files.is_empty();
+    if result.is_err() && !changed {
+        return result;
+    }
+    let (steps, undo, blocked) = match oplog::plan(&meta, &before, &after, &saved, &ctx) {
+        Ok((steps, what)) => (steps, Some(what), None),
+        // Nothing happened worth listing (checking out the current branch...).
+        Err(_) if !changed && meta.kind != OpKind::Push => return result,
+        Err(why) => (Vec::new(), None, Some(why)),
+    };
+    let title = match &result {
+        Ok(_) => meta.title,
+        Err(_) => format!("{}（未完成）", meta.title),
+    };
+    log.lock().unwrap().push(OpEntry {
+        id: 0,
+        time,
+        kind: meta.kind,
+        title,
+        undo,
+        blocked,
+        undone: false,
+        steps,
+    });
+    result
 }
 
 impl RepoSession {

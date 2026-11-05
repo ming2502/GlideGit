@@ -63,6 +63,8 @@ interface RepoState {
   tasks: Task[];
   toasts: Toast[];
   branchPopup: boolean;
+  /** The undo center (operation log) popup is open. */
+  undoCenter: boolean;
   confirm: ConfirmRequest | null;
   pushDialog: boolean;
   stashDialog: boolean;
@@ -115,6 +117,7 @@ interface RepoState {
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
+  setUndoCenter: (open: boolean) => void;
   ask: (req: Omit<ConfirmRequest, "resolve">) => Promise<boolean>;
   setPullMode: (m: PullMode) => void;
 }
@@ -150,6 +153,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   tasks: [],
   toasts: [],
   branchPopup: false,
+  undoCenter: false,
   confirm: null,
   pushDialog: false,
   stashDialog: false,
@@ -215,6 +219,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       diffLoading: false,
       pendingStage: {},
       branchPopup: false,
+      undoCenter: false,
     });
     persistTabs(saved, root);
     if (target.selectedPath) void get().reloadDiff();
@@ -365,6 +370,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setBranchPopup: (branchPopup) => set({ branchPopup }),
+  setUndoCenter: (undoCenter) => set({ undoCenter }),
 
   ask(req) {
     return new Promise<boolean>((resolve) => {

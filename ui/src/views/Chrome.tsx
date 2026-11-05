@@ -4,9 +4,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { PullMode } from "../api";
 import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
-import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon } from "../components/Icons";
+import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon, UndoIcon } from "../components/Icons";
 import { repoName } from "../lib/format";
 import { useRepo, type Task } from "../stores/repo";
+import { useOperationLog } from "./UndoCenter";
 
 export async function pickRepository(): Promise<void> {
   const dir = await open({ directory: true, multiple: false, title: "打开 Git 仓库" });
@@ -29,6 +30,7 @@ export function Toolbar() {
   const setPullMode = useRepo((s) => s.setPullMode);
   const [menu, setMenu] = useState<null | { kind: "repo" | "pull"; x: number; y: number }>(null);
   const head = snapshot.head;
+  const lastUndoable = useOperationLog().find((o) => o.undo && !o.undone);
 
   return (
     <div className="toolbar" data-tauri-drag-region>
@@ -81,6 +83,13 @@ export function Toolbar() {
       <button className="tb-icon" onClick={() => runAction("git.push")} title={`Push… ${shortcutOf("git.push")}`}>
         <PushIcon />
         {head.ahead > 0 && <span className="badge">{head.ahead}</span>}
+      </button>
+      <button
+        className="tb-icon"
+        onClick={() => runAction("git.undoCenter")}
+        title={`撤销中心 ${shortcutOf("git.undoCenter")}${lastUndoable ? `\n最近可撤销：${lastUndoable.title}` : ""}`}
+      >
+        <UndoIcon />
       </button>
       <button className="tb-icon" onClick={() => runAction("repo.refresh")} title={`刷新 ${shortcutOf("repo.refresh")}`}>
         <RefreshIcon />

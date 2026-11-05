@@ -173,6 +173,13 @@ struct Task { id, repo, kind, priority, cancel: CancellationToken, progress: Sen
 - 计划中：
   - 利用 `git commit-graph write --reachable --changed-paths` 加速首屏和路径过滤（M2-4 / M2-10）。
 
+### 4.4.1 OpLog 与撤销（M3-7）
+
+- 写命令通过 `RepoSession::write_op(OpMeta, f)` 执行：在写锁内先读一次引用状态（`for-each-ref refs/heads refs/tags refs/stash`、`HEAD` 文件、`rev-parse HEAD`），按需备份，执行操作，再读一次引用状态，然后由 `oplog::plan` 推导撤销步骤。
+- 撤销步骤（`UndoStep`）都带着预期值：reset 类步骤要求 HEAD 仍是操作后的提交；切换分支要求 HEAD 仍在操作后的位置；`update-ref` 用旧值做比较并交换；`StashPop` 要求栈顶仍是这条 stash；恢复备份要求文件的内容指纹（FNV-1a）仍与操作后一致。撤销前先整体校验一遍，任何一项不符就拒绝。
+- 撤销本身也通过同一机制记录（类型为 Undo，不能再撤销），原条目标记为已撤销。
+- 远程引用不参与比较，所以拉取只撤销本地分支的移动，推送只记录不撤销。
+
 ### 4.5 Status 与 Watcher
 
 - 监听工作区与 `.git/{HEAD,index,refs,packed-refs,MERGE_HEAD,rebase-merge,rebase-apply}`。

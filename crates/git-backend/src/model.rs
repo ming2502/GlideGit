@@ -259,6 +259,18 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// Where HEAD and every branch, tag and the stash point: what the
+/// operation log compares before and after an operation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefsState {
+    /// `refs/heads/main`, or `None` when HEAD is detached.
+    pub head_ref: Option<String>,
+    /// `None` before the first commit.
+    pub head_oid: Option<String>,
+    /// Full ref name → object id (`refs/heads/*`, `refs/tags/*`, `refs/stash`).
+    pub refs: std::collections::BTreeMap<String, String>,
+}
+
 /// Two branches (or any two commits) side by side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

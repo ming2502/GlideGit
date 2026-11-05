@@ -399,11 +399,56 @@ async function mockFiltered(root: string, f: LogFilter, start: number, count: nu
   };
 }
 
+// Operation log: a few past operations, plus whatever the demo does.
+type MockOp = { id: number; time: number; kind: string; title: string; undo: string | null; blocked: string | null; undone: boolean };
+const t0 = Math.floor(Date.now() / 1000);
+const ops: MockOp[] = [
+  { id: 1, time: t0 - 7200, kind: "push", title: "推送 feature/commit-panel", undo: null, blocked: "已推送到远程，无法在本地撤销", undone: false },
+  { id: 2, time: t0 - 3600, kind: "branch", title: "新建并切换到分支 feature/commit-panel", undo: "切换回 main，删除 feature/commit-panel", blocked: null, undone: false },
+  { id: 3, time: t0 - 1800, kind: "cherryPick", title: "Cherry-pick 78dde6c Log filters（未完成）", undo: null, blocked: "操作在中途停下了，可在顶部横幅中中止", undone: false },
+  { id: 4, time: t0 - 600, kind: "commit", title: "提交：Add RepoSession with serialised writes", undo: "撤销提交，修改保留在暂存区", blocked: null, undone: false },
+  { id: 5, time: t0 - 120, kind: "rollback", title: "回滚 ui/src/App.tsx", undo: "恢复被丢弃的修改（作为未暂存的修改）", blocked: null, undone: false },
+];
+const OP_OF: Record<string, (a: Record<string, unknown>) => [string, string, string | null]> = {
+  commit: (a) => [a.amend ? "amend" : "commit", `${a.amend ? "修改提交" : "提交"}：${String(a.message).split("\n")[0]}`, "撤销提交，修改保留在暂存区"],
+  checkout_branch: (a) => ["checkout", `切换到 ${a.name}`, "切换回 feature/commit-panel"],
+  create_branch: (a) => ["branch", `新建分支 ${a.name}`, `删除 ${a.name}`],
+  delete_branch: (a) => ["branch", `删除分支 ${a.name}`, `恢复 ${a.name}`],
+  reset: (a) => ["reset", `重置到 ${String(a.oid).slice(0, 7)}（${a.mode}）`, `回到操作前的提交 f00dbab${a.mode === "hard" ? "，恢复重置前的本地修改" : ""}`],
+  rollback: (a) => ["rollback", `回滚 ${(a.tracked as string[]).length + (a.untracked as string[]).length} 个文件`, "恢复被丢弃的修改（作为未暂存的修改）"],
+  write_worktree_file: (a) => ["discard", `丢弃 ${a.path} 中的修改块`, "恢复被丢弃的修改（作为未暂存的修改）"],
+  stash_push: () => ["stash", "Stash 本地修改", "把修改从 stash 取回"],
+  create_tag: (a) => ["tag", `新建标签 ${a.name}`, `删除 ${a.name}`],
+};
+function recordOp(cmd: string, a: Record<string, unknown>) {
+  const f = OP_OF[cmd];
+  if (!f) return;
+  const [kind, title, undo] = f(a);
+  ops.push({ id: ops.length + 1, time: Math.floor(Date.now() / 1000), kind, title, undo, blocked: null, undone: false });
+}
+
 export function installMock(): void {
   mockWindows("main");
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
+    recordOp(cmd, a);
     switch (cmd) {
+      case "operation_log":
+        return [...ops].reverse();
+      case "undo_operation": {
+        const op = ops.find((o) => o.id === a.id);
+        if (!op || op.undone || !op.undo) throw { kind: "invalid", message: "这个操作已经撤销过了" };
+        if (op.kind === "branch" && op.id === 2)
+          return sleep(200).then(() => {
+            throw { kind: "invalid", message: "仓库在这次操作之后又有变化，无法安全撤销" };
+          });
+        return sleep(250).then(() => {
+          op.undone = true;
+          ops.push({ id: ops.length + 1, time: Math.floor(Date.now() / 1000), kind: "undo", title: `撤销：${op.title}`, undo: null, blocked: "撤销操作本身不能再撤销", undone: false });
+          publish();
+          return op.undo;
+        });
+      }
       case "app_info":
         return { version: "0.1.0", gitVersion: "2.55.0 (mock)", platform: "macos" };
       case "fetch":

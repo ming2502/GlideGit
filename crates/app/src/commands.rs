@@ -3,11 +3,13 @@
 
 use std::sync::Arc;
 
-use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
+use glide_core::{
+    AuthorCount, CoreError, LogFilter, LogPage, LogStatus, OpEntry, OpKind, OpMeta, RepoSession,
+};
 use glide_git_backend::{
     Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide, ConflictTexts,
-    DiffMode, FileDiff, FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoSnapshot,
-    ResetMode, StashEntry, StashOptions,
+    DiffMode, FileDiff, FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoOperation,
+    RepoSnapshot, ResetMode, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -36,6 +38,38 @@ impl From<CoreError> for CmdError {
 }
 
 type CmdResult<T> = Result<T, CmdError>;
+
+fn short(oid: &str) -> &str {
+    &oid[..oid.len().min(7)]
+}
+
+/// First line of a message, shortened for an operation title.
+fn headline(text: &str) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    match line.char_indices().nth(60) {
+        Some((i, _)) => format!("{}…", &line[..i]),
+        None => line.to_string(),
+    }
+}
+
+/// "1a2b3c4 subject" for a commit, for operation titles.
+async fn commit_label(s: &RepoSession, oid: &str) -> String {
+    let rev = oid.to_string();
+    match s.read(move |r| r.log(Some(&rev), 1)).await {
+        Ok(c) if !c.is_empty() => format!("{} {}", short(oid), headline(&c[0].subject)),
+        _ => short(oid).to_string(),
+    }
+}
+
+/// Message of a stash entry, for undoing its drop.
+async fn stash_message(s: &RepoSession, oid: &str) -> CmdResult<String> {
+    let list = s.read(|r| r.stash_list()).await?;
+    Ok(list
+        .into_iter()
+        .find(|e| e.oid == oid)
+        .map(|e| e.message)
+        .unwrap_or_default())
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +195,14 @@ pub async fn rollback(
     untracked: Vec<String>,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.rollback(&tracked, &untracked)).await?)
+    let all: Vec<String> = tracked.iter().chain(&untracked).cloned().collect();
+    let title = match all.as_slice() {
+        [one] => format!("回滚 {one}"),
+        _ => format!("回滚 {} 个文件", all.len()),
+    };
+    let meta = OpMeta::new(OpKind::Rollback, title).backup_files(all);
+    Ok(s.write_op(meta, move |r| r.rollback(&tracked, &untracked))
+        .await?)
 }
 
 #[tauri::command]
@@ -172,7 +213,12 @@ pub async fn commit(
     amend: bool,
 ) -> CmdResult<String> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.commit(&message, amend)).await?)
+    let meta = if amend {
+        OpMeta::new(OpKind::Amend, format!("修改提交：{}", headline(&message)))
+    } else {
+        OpMeta::new(OpKind::Commit, format!("提交：{}", headline(&message)))
+    };
+    Ok(s.write_op(meta, move |r| r.commit(&message, amend)).await?)
 }
 
 #[tauri::command]
@@ -316,7 +362,12 @@ pub async fn stash_push(
     options: StashOptions,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.stash_push(&options)).await?)
+    let title = match options.message.as_deref().filter(|m| !m.trim().is_empty()) {
+        Some(m) => format!("Stash：{}", headline(m)),
+        None => "Stash 本地修改".to_string(),
+    };
+    let meta = OpMeta::new(OpKind::Stash, title);
+    Ok(s.write_op(meta, move |r| r.stash_push(&options)).await?)
 }
 
 #[tauri::command]
@@ -329,10 +380,18 @@ pub async fn stash_apply(
     restore_index: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(
-        s.write(move |r| r.stash_apply(index, &oid, pop, restore_index))
-            .await?,
-    )
+    if !pop {
+        return Ok(s
+            .write(move |r| r.stash_apply(index, &oid, pop, restore_index))
+            .await?);
+    }
+    let message = stash_message(&s, &oid).await?;
+    let meta = OpMeta::new(OpKind::Stash, format!("取出 stash：{}", headline(&message)))
+        .dropped_stash(oid.clone(), message);
+    Ok(s.write_op(meta, move |r| {
+        r.stash_apply(index, &oid, pop, restore_index)
+    })
+    .await?)
 }
 
 #[tauri::command]
@@ -343,7 +402,10 @@ pub async fn stash_drop(
     oid: String,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.stash_drop(index, &oid)).await?)
+    let message = stash_message(&s, &oid).await?;
+    let meta = OpMeta::new(OpKind::Stash, format!("删除 stash：{}", headline(&message)))
+        .dropped_stash(oid.clone(), message);
+    Ok(s.write_op(meta, move |r| r.stash_drop(index, &oid)).await?)
 }
 
 #[tauri::command]
@@ -376,10 +438,12 @@ pub async fn write_worktree_file(
     expected: String,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(
-        s.write(move |r| r.write_worktree_file(&path, &content, &expected))
-            .await?,
-    )
+    let meta = OpMeta::new(OpKind::Discard, format!("丢弃 {path} 中的修改块"))
+        .backup_files(vec![path.clone()]);
+    Ok(s.write_op(meta, move |r| {
+        r.write_worktree_file(&path, &content, &expected)
+    })
+    .await?)
 }
 
 #[tauri::command]
@@ -416,7 +480,9 @@ pub async fn checkout_branch(
     remote: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.checkout_branch(&name, remote)).await?)
+    let meta = OpMeta::new(OpKind::Checkout, format!("切换到 {name}"));
+    Ok(s.write_op(meta, move |r| r.checkout_branch(&name, remote))
+        .await?)
 }
 
 #[tauri::command]
@@ -426,7 +492,11 @@ pub async fn checkout_detached(
     oid: String,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.checkout_detached(&oid)).await?)
+    let meta = OpMeta::new(
+        OpKind::Checkout,
+        format!("检出提交 {}", commit_label(&s, &oid).await),
+    );
+    Ok(s.write_op(meta, move |r| r.checkout_detached(&oid)).await?)
 }
 
 #[tauri::command]
@@ -438,8 +508,9 @@ pub async fn create_tag(
     message: Option<String>,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
+    let meta = OpMeta::new(OpKind::Tag, format!("新建标签 {name}（{}）", short(&oid)));
     Ok(
-        s.write(move |r| r.create_tag(&name, &oid, message.as_deref()))
+        s.write_op(meta, move |r| r.create_tag(&name, &oid, message.as_deref()))
             .await?,
     )
 }
@@ -447,13 +518,21 @@ pub async fn create_tag(
 #[tauri::command]
 pub async fn cherry_pick(state: State<'_, AppState>, root: String, oid: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.cherry_pick(&oid)).await?)
+    let meta = OpMeta::new(
+        OpKind::CherryPick,
+        format!("Cherry-pick {}", commit_label(&s, &oid).await),
+    );
+    Ok(s.write_op(meta, move |r| r.cherry_pick(&oid)).await?)
 }
 
 #[tauri::command]
 pub async fn revert(state: State<'_, AppState>, root: String, oid: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.revert(&oid)).await?)
+    let meta = OpMeta::new(
+        OpKind::Revert,
+        format!("还原提交 {}", commit_label(&s, &oid).await),
+    );
+    Ok(s.write_op(meta, move |r| r.revert(&oid)).await?)
 }
 
 #[tauri::command]
@@ -464,7 +543,18 @@ pub async fn reset(
     mode: ResetMode,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.reset(&oid, mode)).await?)
+    let mode_name = match mode {
+        ResetMode::Soft => "soft",
+        ResetMode::Mixed => "mixed",
+        ResetMode::Hard => "hard",
+        ResetMode::Keep => "keep",
+    };
+    let title = format!("重置到 {}（{mode_name}）", commit_label(&s, &oid).await);
+    let meta = match mode {
+        ResetMode::Hard => OpMeta::new(OpKind::Reset, title).backup_all(),
+        _ => OpMeta::new(OpKind::Reset, title).reset_back(mode),
+    };
+    Ok(s.write_op(meta, move |r| r.reset(&oid, mode)).await?)
 }
 
 #[tauri::command]
@@ -553,10 +643,12 @@ pub async fn interactive_rebase(
     autostash: bool,
 ) -> CmdResult<bool> {
     let s = session(&state, &root).await?;
-    Ok(
-        s.write(move |r| r.interactive_rebase(&from, &steps, autostash))
-            .await?,
-    )
+    let title = format!("交互式变基 {} 个提交（自 {}）", steps.len(), short(&from));
+    let meta = OpMeta::new(OpKind::Rebase, title);
+    Ok(s.write_op(meta, move |r| {
+        r.interactive_rebase(&from, &steps, autostash)
+    })
+    .await?)
 }
 
 #[tauri::command]
@@ -568,7 +660,15 @@ pub async fn skip_operation(state: State<'_, AppState>, root: String) -> CmdResu
 #[tauri::command]
 pub async fn continue_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(|r| r.continue_operation()).await?)
+    let what = match s.snapshot().and_then(|snap| snap.operation) {
+        Some(RepoOperation::Rebase) => "继续变基",
+        Some(RepoOperation::Merge) => "完成合并",
+        Some(RepoOperation::CherryPick) => "继续 cherry-pick",
+        Some(RepoOperation::Revert) => "继续还原",
+        None => "继续操作",
+    };
+    let meta = OpMeta::new(OpKind::Continue, what);
+    Ok(s.write_op(meta, |r| r.continue_operation()).await?)
 }
 
 #[tauri::command]
@@ -580,10 +680,16 @@ pub async fn create_branch(
     checkout: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(
-        s.write(move |r| r.create_branch(&name, start.as_deref(), checkout))
-            .await?,
-    )
+    let title = if checkout {
+        format!("新建并切换到分支 {name}")
+    } else {
+        format!("新建分支 {name}")
+    };
+    let meta = OpMeta::new(OpKind::Branch, title);
+    Ok(s.write_op(meta, move |r| {
+        r.create_branch(&name, start.as_deref(), checkout)
+    })
+    .await?)
 }
 
 #[tauri::command]
@@ -594,7 +700,9 @@ pub async fn delete_branch(
     force: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    Ok(s.write(move |r| r.delete_branch(&name, force)).await?)
+    let meta = OpMeta::new(OpKind::Branch, format!("删除分支 {name}"));
+    Ok(s.write_op(meta, move |r| r.delete_branch(&name, force))
+        .await?)
 }
 
 #[tauri::command]
@@ -619,14 +727,15 @@ pub async fn pull(
     task_id: u64,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let mode = match mode {
-        PullModeArg::Merge => PullMode::Merge,
-        PullModeArg::Rebase => PullMode::Rebase,
-        PullModeArg::FfOnly => PullMode::FastForwardOnly,
+    let (mode, title) = match mode {
+        PullModeArg::Merge => (PullMode::Merge, "拉取（合并）"),
+        PullModeArg::Rebase => (PullMode::Rebase, "拉取（变基）"),
+        PullModeArg::FfOnly => (PullMode::FastForwardOnly, "拉取（仅快进）"),
     };
     let task = state.tasks.start(task_id);
     let net = task.net_options(&app);
-    Ok(s.remote(true, move |r| r.pull(mode, &net)).await?)
+    let meta = OpMeta::new(OpKind::Pull, title);
+    Ok(s.remote_op(true, meta, move |r| r.pull(mode, &net)).await?)
 }
 
 #[tauri::command]
@@ -640,8 +749,38 @@ pub async fn push(
     let s = session(&state, &root).await?;
     let task = state.tasks.start(task_id);
     let net = task.net_options(&app);
-    Ok(s.remote(false, move |r| r.push(force_with_lease, &net))
-        .await?)
+    let branch = s
+        .snapshot()
+        .and_then(|snap| snap.head.branch.clone())
+        .unwrap_or_default();
+    let title = if force_with_lease {
+        format!("强制推送 {branch}")
+    } else {
+        format!("推送 {branch}")
+    };
+    let meta = OpMeta::new(OpKind::Push, title);
+    Ok(
+        s.remote_op(false, meta, move |r| r.push(force_with_lease, &net))
+            .await?,
+    )
+}
+
+/// Recorded operations of a repository, newest first.
+#[tauri::command]
+pub async fn operation_log(state: State<'_, AppState>, root: String) -> CmdResult<Vec<OpEntry>> {
+    let s = session(&state, &root).await?;
+    Ok(s.operations())
+}
+
+/// Undo a recorded operation. Returns what was done.
+#[tauri::command]
+pub async fn undo_operation(
+    state: State<'_, AppState>,
+    root: String,
+    id: u64,
+) -> CmdResult<String> {
+    let s = session(&state, &root).await?;
+    Ok(s.undo(id).await?)
 }
 
 #[tauri::command]

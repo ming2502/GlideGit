@@ -113,7 +113,7 @@ impl Blob {
 }
 
 /// How `git reset` treats the index and working tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ResetMode {
@@ -152,6 +152,20 @@ fn check_ref_name(name: &str) -> Result<()> {
         Err(GitError::Invalid(format!("invalid name: {name:?}")))
     } else {
         Ok(())
+    }
+}
+
+/// Full ref names the operation log may change.
+fn check_ref_target(name: &str) -> Result<()> {
+    let ok =
+        (name.starts_with("refs/heads/") || name.starts_with("refs/tags/") || name == "refs/stash")
+            && check_ref_name(name.trim_start_matches("refs/")).is_ok();
+    if ok {
+        Ok(())
+    } else {
+        Err(GitError::Invalid(format!(
+            "not a branch or tag ref: {name:?}"
+        )))
     }
 }
 
@@ -572,6 +586,96 @@ impl Repo {
                 .env("GIT_EDITOR", "true"),
         )?;
         Ok(self.operation().is_none())
+    }
+
+    // ------------------------------------------------- operation log support
+
+    /// HEAD plus all branches, tags and the stash, for before/after comparison.
+    pub fn refs_state(&self) -> Result<RefsState> {
+        let out = self.read(&[
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+            "refs/heads",
+            "refs/tags",
+            "refs/stash",
+        ])?;
+        let refs = out
+            .lines()
+            .filter_map(|l| l.split_once('\0'))
+            .map(|(r, o)| (r.to_string(), o.to_string()))
+            .collect();
+        let head = std::fs::read_to_string(self.git_dir.join("HEAD")).unwrap_or_default();
+        let head_ref = head
+            .trim()
+            .strip_prefix("ref: ")
+            .map(|r| r.trim().to_string());
+        let head_oid = self
+            .read(&["rev-parse", "--verify", "-q", "HEAD"])
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| check_oid(s).is_ok());
+        Ok(RefsState {
+            head_ref,
+            head_oid,
+            refs,
+        })
+    }
+
+    /// A commit holding the current index and working-tree changes (tracked
+    /// files), without touching any ref or file: a backup before destructive
+    /// operations. `None` when there is nothing to save.
+    pub fn stash_create(&self) -> Result<Option<String>> {
+        if !self.has_head() {
+            return Ok(None);
+        }
+        let out = self.cli.run(
+            &self.root,
+            &["stash", "create"],
+            RunOptions::write().env("GIT_LITERAL_PATHSPECS", "0"),
+        )?;
+        let oid = out.stdout_str().trim().to_string();
+        Ok(check_oid(&oid).ok().map(|_| oid))
+    }
+
+    /// Re-apply a backup made by [`Repo::stash_create`] (or any stash commit).
+    pub fn stash_apply_commit(&self, oid: &str) -> Result<()> {
+        check_oid(oid)?;
+        self.cli.run(
+            &self.root,
+            &["stash", "apply", "--index", oid],
+            RunOptions::write().env("GIT_LITERAL_PATHSPECS", "0"),
+        )?;
+        Ok(())
+    }
+
+    /// Put a stash commit back on the stash list (undo of a drop / pop).
+    pub fn stash_store(&self, oid: &str, message: &str) -> Result<()> {
+        check_oid(oid)?;
+        self.cli.run(
+            &self.root,
+            &["stash", "store", "-m", message, oid],
+            RunOptions::write().env("GIT_LITERAL_PATHSPECS", "0"),
+        )?;
+        Ok(())
+    }
+
+    /// Point `name` at `oid`, but only if it currently is `expect` (`None`:
+    /// must not exist). The compare-and-swap keeps undo from overwriting
+    /// anything that moved since.
+    pub fn update_ref_checked(&self, name: &str, oid: &str, expect: Option<&str>) -> Result<()> {
+        check_ref_target(name)?;
+        check_oid(oid)?;
+        let zero = "0".repeat(oid.len());
+        let old = expect.unwrap_or(&zero);
+        check_oid(old)?;
+        self.write(&["update-ref", "-m", "glidegit: undo", name, oid, old])
+    }
+
+    /// Delete `name` if it still points at `expect`.
+    pub fn delete_ref_checked(&self, name: &str, expect: &str) -> Result<()> {
+        check_ref_target(name)?;
+        check_oid(expect)?;
+        self.write(&["update-ref", "-d", name, expect])
     }
 
     /// Resolve a branch name, tag or commit id to a commit id.

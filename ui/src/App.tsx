@@ -21,6 +21,7 @@ import { AskpassDialog } from "./views/AskpassDialog";
 import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
 import { TabBar } from "./views/TabBar";
+import { UndoCenter } from "./views/UndoCenter";
 import { Welcome } from "./views/Welcome";
 
 export function App() {
@@ -97,6 +98,13 @@ export function App() {
       enabled: () => !!useRepo.getState().root,
       run: () => void useRepo.getState().closeRepo(),
     },
+    {
+      id: "git.undoCenter",
+      title: "撤销中心…",
+      keys: ["mod+shift+u"],
+      run: () => useRepo.getState().setUndoCenter(true),
+      enabled: () => !!useRepo.getState().root,
+    },
     { id: "view.changes", title: "Commit", keys: ["mod+0"], run: () => useRepo.getState().setView("changes") },
     { id: "view.log", title: "Log", keys: ["mod+9"], run: () => useRepo.getState().setView("log") },
     { id: "view.stash", title: "Stash", keys: ["mod+8"], run: () => useRepo.getState().setView("stash") },
@@ -151,6 +159,7 @@ export function App() {
       )}
       <StatusBar gitVersion={info?.gitVersion ?? ""} />
       <BranchPopup />
+      <UndoCenter />
       <PushDialog />
       <StashDialog />
       <RebaseDialog />

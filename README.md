@@ -12,7 +12,7 @@ Tauri 2 · Rust（`crates/`）· React + TypeScript（`ui/`）· 系统 git CLI
 ```
 crates/git-backend  git CLI 封装、porcelain 解析、领域模型（导出 TS 类型）
 crates/log-index    Log 提交索引：流式首屏、SQLite 落盘、增量更新
-crates/core         RepoSession：串行写、文件监听、快照发布、索引更新
+crates/core         RepoSession：串行写、文件监听、快照发布、索引更新、操作日志与撤销
 crates/app          Tauri 入口与 IPC 命令
 ui/                 前端（Vite + React + Zustand）
 ```
@@ -48,6 +48,7 @@ cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   #
 | 下一处 / 上一处修改（diff） | F7 / ⇧F7 | F7 / Shift+F7 |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
+| 撤销中心（撤销最近的操作） | ⌘⇧U | Ctrl+Shift+U |
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |
 | 关闭仓库标签 | ⌘⌥W | Ctrl+Alt+W |
 | 变更列表：切换 / 勾选 | ↑↓ / 空格 | ↑↓ / Space |

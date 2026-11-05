@@ -120,7 +120,7 @@ const RESET_MODES: { mode: ResetMode; label: string; detail: string }[] = [
   { mode: "soft", label: "Soft", detail: "只移动分支；之后的改动保留在暂存区" },
   { mode: "mixed", label: "Mixed", detail: "移动分支并重置暂存区；改动保留在工作区" },
   { mode: "keep", label: "Keep", detail: "移动分支并更新工作区；会丢失的本地修改则拒绝执行" },
-  { mode: "hard", label: "Hard", detail: "移动分支并丢弃所有本地修改，无法恢复" },
+  { mode: "hard", label: "Hard", detail: "移动分支并丢弃所有本地修改（可在撤销中心恢复）" },
 ];
 
 export function ResetDialog({
