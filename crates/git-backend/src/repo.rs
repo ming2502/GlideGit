@@ -837,18 +837,26 @@ impl Repo {
         self.write(&["-c", "core.editor=true", cmd, "--skip"])
     }
 
+    /// Local and remote branches, in ref name order (no commit is read, so
+    /// this stays fast with hundreds of branches), and the recently checked
+    /// out ones.
     pub fn branches(&self) -> Result<BranchList> {
-        let text = self.read(&[
-            "for-each-ref",
-            "--sort=-committerdate",
-            parse::FOR_EACH_REF_FORMAT,
-            "refs/heads",
-            "refs/remotes",
-        ])?;
-        let (local, remote) = parse::parse_for_each_ref(&text);
+        // Two independent git processes: run them side by side.
+        let (text, reflog) = std::thread::scope(|scope| {
+            let reflog = scope.spawn(|| {
+                self.read(&["reflog", "show", "--format=%gs", "-n", "500", "HEAD", "--"])
+            });
+            let text = self.read(&[
+                "for-each-ref",
+                parse::FOR_EACH_REF_FORMAT,
+                "refs/heads",
+                "refs/remotes",
+            ]);
+            (text, reflog.join().expect("reflog reader panicked"))
+        });
+        let (local, remote) = parse::parse_for_each_ref(&text?);
         // Reflog is missing on unborn branches; recent list is best-effort.
-        let recent = self
-            .read(&["reflog", "show", "--format=%gs", "-n", "500", "HEAD", "--"])
+        let recent = reflog
             .map(|r| parse::parse_recent_branches(&r, &local, 10))
             .unwrap_or_default();
         Ok(BranchList {
@@ -937,25 +945,36 @@ impl Repo {
     /// compared with its first parent, a root commit with the empty tree.
     pub fn commit_details(&self, oid: &str) -> Result<CommitDetails> {
         check_oid(oid)?;
-        let text = self.read(&["log", "-1", parse::DETAILS_FORMAT, oid, "--"])?;
-        let mut d = parse::parse_details(&text)
+        let diff_tree = |from: &str| {
+            let args = [
+                "diff-tree",
+                "-r",
+                "-z",
+                "-M",
+                "--raw",
+                "--numstat",
+                "--no-commit-id",
+                from,
+                oid,
+            ];
+            self.cli.run(&self.root, &args, RunOptions::read())
+        };
+        // The message and the file list are independent: read them side by
+        // side, diffing against the first parent (`oid^`; a root commit has
+        // none, which the parents tell afterwards).
+        let first_parent = format!("{oid}^");
+        let (text, files) = std::thread::scope(|scope| {
+            let files = scope.spawn(|| diff_tree(&first_parent));
+            let text = self.read(&["log", "-1", parse::DETAILS_FORMAT, oid, "--"]);
+            (text, files.join().expect("diff-tree reader panicked"))
+        });
+        let mut d = parse::parse_details(&text?)
             .ok_or_else(|| GitError::Invalid(format!("no such commit: {oid}")))?;
-        let mut args = vec![
-            "diff-tree",
-            "-r",
-            "-z",
-            "-M",
-            "--raw",
-            "--numstat",
-            "--no-commit-id",
-        ];
-        let parent = d.parents.first().cloned();
-        match &parent {
-            Some(p) => args.push(p),
-            None => args.push("--root"),
-        }
-        args.push(oid);
-        let out = self.cli.run(&self.root, &args, RunOptions::read())?;
+        let out = if d.parents.is_empty() {
+            diff_tree("--root")?
+        } else {
+            files?
+        };
         d.files = parse::parse_diff_tree(&out.stdout);
         Ok(d)
     }
@@ -1117,8 +1136,7 @@ impl Repo {
             path: path.to_string(),
             ..FileTexts::default()
         };
-        let a = self.read_side(&old)?;
-        let b = self.read_side(&new)?;
+        let (a, b) = self.read_sides(&old, &new)?;
         if matches!(a, Blob::TooLarge) || matches!(b, Blob::TooLarge) {
             out.too_large = true;
             return Ok(out);
@@ -1137,6 +1155,106 @@ impl Repo {
         let text = |d: Option<Vec<u8>>| d.map(|d| String::from_utf8_lossy(&d).into_owned());
         out.old = text(a);
         out.new = text(b);
+        Ok(out)
+    }
+
+    /// Both sides of a diff. Two objects from the repository are read by one
+    /// `git cat-file` (each process costs 20–40 ms on a big repository).
+    fn read_sides(&self, a: &Side, b: &Side) -> Result<(Blob, Blob)> {
+        let spec = |s: &Side| match s {
+            Side::Index(p) => Some(format!(":{p}")),
+            Side::Rev(rev, p) => Some(format!("{rev}:{p}")),
+            _ => None,
+        };
+        match (spec(a), spec(b)) {
+            (Some(x), Some(y)) => {
+                let mut blobs = self.read_blobs(&[x, y])?.into_iter();
+                Ok((
+                    blobs.next().unwrap_or(Blob::Missing),
+                    blobs.next().unwrap_or(Blob::Missing),
+                ))
+            }
+            _ => Ok((self.read_side(a)?, self.read_side(b)?)),
+        }
+    }
+
+    /// Read several `rev:path` objects with one `git cat-file --batch`. Stops
+    /// at the first blob over the size limit: that one and the rest come
+    /// back as [`Blob::TooLarge`] (callers show nothing then anyway).
+    fn read_blobs(&self, specs: &[String]) -> Result<Vec<Blob>> {
+        if specs.iter().any(|s| s.contains('\n')) {
+            return Err(GitError::Invalid("invalid path".into()));
+        }
+        let mut input = String::new();
+        for s in specs {
+            input.push_str(s);
+            input.push('\n');
+        }
+        let mut out: Vec<Blob> = Vec::with_capacity(specs.len());
+        let mut buf: Vec<u8> = Vec::new();
+        // Once a header is in: the object's size, and whether it is a blob
+        // to keep (anything else, e.g. a tree, is read past).
+        let mut pending: Option<(usize, bool)> = None;
+        let mut too_large = false;
+        self.cli.run_streaming(
+            &self.root,
+            &["cat-file", "--batch"],
+            RunOptions::read().stdin(input),
+            |chunk| {
+                buf.extend_from_slice(chunk);
+                loop {
+                    match pending {
+                        None => {
+                            let Some(nl) = buf.iter().position(|&b| b == b'\n') else {
+                                return true;
+                            };
+                            let line = String::from_utf8_lossy(&buf[..nl]).into_owned();
+                            buf.drain(..=nl);
+                            // "<oid> blob <size>", or "<spec> missing" / "ambiguous".
+                            let mut f = line.split(' ');
+                            match (
+                                f.next(),
+                                f.next(),
+                                f.next().and_then(|n| n.parse::<usize>().ok()),
+                            ) {
+                                (Some(_), Some(kind), Some(n)) => {
+                                    if n as u64 > MAX_PREVIEW_BYTES {
+                                        too_large = true;
+                                        return false;
+                                    }
+                                    let blob = kind == "blob";
+                                    if !blob {
+                                        out.push(Blob::Missing);
+                                    }
+                                    pending = Some((n, blob));
+                                }
+                                _ => out.push(Blob::Missing),
+                            }
+                        }
+                        Some((len, keep)) => {
+                            if buf.len() < len + 1 {
+                                return true;
+                            }
+                            let data: Vec<u8> = buf.drain(..len + 1).take(len).collect();
+                            if keep {
+                                out.push(Blob::Data(data));
+                            }
+                            pending = None;
+                        }
+                    }
+                    if out.len() == specs.len() {
+                        return true;
+                    }
+                }
+            },
+        )?;
+        while out.len() < specs.len() {
+            out.push(if too_large {
+                Blob::TooLarge
+            } else {
+                Blob::Missing
+            });
+        }
         Ok(out)
     }
 

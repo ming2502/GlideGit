@@ -4,8 +4,4 @@ export type Branch = {
 /**
  * Short name, e.g. `main` or `origin/main`.
  */
-name: string, fullRef: string, oid: string, upstream: string | null, upstreamGone: boolean, ahead: number, behind: number, isHead: boolean, isRemote: boolean, 
-/**
- * Committer time of the tip, unix seconds.
- */
-commitTime: number, subject: string, };
+name: string, fullRef: string, oid: string, upstream: string | null, upstreamGone: boolean, ahead: number, behind: number, isHead: boolean, isRemote: boolean, };

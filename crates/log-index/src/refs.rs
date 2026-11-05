@@ -6,8 +6,7 @@ use glide_git_backend::{Repo, RunOptions};
 
 use crate::Result;
 
-const FORMAT: &str =
-    "--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(refname)";
+const FORMAT: &str = "--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(refname)%00%(committerdate:unix)%00%(*committerdate:unix)";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RefTips {
@@ -17,6 +16,8 @@ pub struct RefTips {
     /// Commit id → labels in `git log --decorate` style
     /// (`HEAD -> main`, `origin/main`, `tag: v1.0`).
     pub labels: HashMap<String, Vec<String>>,
+    /// Commit id → committer time, where known (for the quick first page).
+    pub times: HashMap<String, i64>,
 }
 
 /// One `for-each-ref` call plus reading `HEAD` directly: this runs after every
@@ -43,6 +44,7 @@ pub fn parse(head_file: &str, for_each_ref: &str) -> RefTips {
 
     let mut tips = BTreeSet::new();
     let mut labels: HashMap<String, Vec<String>> = HashMap::new();
+    let mut times: HashMap<String, i64> = HashMap::new();
     let mut head_label = None;
 
     for line in for_each_ref.lines() {
@@ -77,6 +79,10 @@ pub fn parse(head_file: &str, for_each_ref: &str) -> RefTips {
             continue;
         };
         tips.insert(commit.to_string());
+        let time = if f[1] == "commit" { f.get(5) } else { f.get(6) };
+        if let Some(t) = time.and_then(|t| t.parse().ok()) {
+            times.insert(commit.to_string(), t);
+        }
         labels.entry(commit.to_string()).or_default().push(label);
     }
 
@@ -100,6 +106,7 @@ pub fn parse(head_file: &str, for_each_ref: &str) -> RefTips {
     RefTips {
         tips: tips.into_iter().collect(),
         labels,
+        times,
     }
 }
 

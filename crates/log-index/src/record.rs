@@ -1,8 +1,9 @@
 //! Streaming parser for the `git log` records the index is built from.
 
 /// One record per commit: id, parents, author name, author email, author
-/// time, subject. Fields are NUL-separated, records end with 0x1e.
-pub const FORMAT: &str = "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s%x1e";
+/// time, committer time, subject. Fields are NUL-separated, records end
+/// with 0x1e.
+pub const FORMAT: &str = "--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%ct%x00%s%x1e";
 
 const RECORD_END: u8 = 0x1e;
 
@@ -15,6 +16,8 @@ pub struct Record {
     pub author_name: String,
     pub author_email: String,
     pub author_time: i64,
+    /// What `--date-order` sorts by (not stored).
+    pub commit_time: i64,
     pub subject: String,
 }
 
@@ -40,7 +43,7 @@ impl RecordParser {
 
 fn parse_record(raw: &[u8]) -> Option<Record> {
     let raw = &raw[raw.iter().position(|&b| b != b'\n')?..];
-    let mut fields = raw.splitn(6, |&b| b == 0);
+    let mut fields = raw.splitn(7, |&b| b == 0);
     let oid = hex_decode(std::str::from_utf8(fields.next()?).ok()?)?;
     let parents_hex = std::str::from_utf8(fields.next()?).ok()?;
     let mut parents = Vec::with_capacity(oid.len() * 2);
@@ -51,6 +54,7 @@ fn parse_record(raw: &[u8]) -> Option<Record> {
     let author_name = text(fields.next()?);
     let author_email = text(fields.next()?);
     let author_time = std::str::from_utf8(fields.next()?).ok()?.parse().ok()?;
+    let commit_time = std::str::from_utf8(fields.next()?).ok()?.parse().ok()?;
     let subject = text(fields.next()?);
     Some(Record {
         oid,
@@ -58,6 +62,7 @@ fn parse_record(raw: &[u8]) -> Option<Record> {
         author_name,
         author_email,
         author_time,
+        commit_time,
         subject,
     })
 }
@@ -109,7 +114,7 @@ mod tests {
     #[test]
     fn parses_across_chunk_boundaries() {
         let stream = format!(
-            "{A}\x00{B} {C}\x00Ann\x00ann@x\x00100\x00Merge it\x1e\n{B}\x00\x00Bob\x00bob@x\x0050\x00Root\x1e\n"
+            "{A}\x00{B} {C}\x00Ann\x00ann@x\x00100\x00110\x00Merge it\x1e\n{B}\x00\x00Bob\x00bob@x\x0050\x0060\x00Root\x1e\n"
         );
         let bytes = stream.as_bytes();
         // Every split point must give the same result.
@@ -124,6 +129,7 @@ mod tests {
             assert_eq!(hex_encode(&out[0].parents[20..]), C);
             assert_eq!(out[0].subject, "Merge it");
             assert_eq!(out[1].author_time, 50);
+            assert_eq!(out[1].commit_time, 60);
             assert!(out[1].parents.is_empty());
         }
     }

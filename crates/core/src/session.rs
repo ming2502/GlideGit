@@ -25,6 +25,11 @@ use crate::oplog::{self, Context, OpEntry, OpKind, OpLog, OpMeta, Saved};
 
 /// Quiet period used to coalesce bursts of file-system events.
 pub const DEBOUNCE: Duration = Duration::from_millis(150);
+/// Wait before refreshing after the first change following a quiet period.
+/// Short, so a saved file shows up at once; editors that save in several
+/// steps (temp file, rename) finish well within it. If more changes keep
+/// coming (a checkout, a build), the full [`DEBOUNCE`] applies instead.
+pub const FIRST_DELAY: Duration = Duration::from_millis(40);
 /// Watcher events arriving this soon after our own write are ignored
 /// (we already refresh explicitly after each write).
 const SELF_WRITE_GRACE: Duration = Duration::from_millis(300);
@@ -561,12 +566,30 @@ async fn refresh_loop(session: std::sync::Weak<RepoSession>, state: Arc<RefreshS
         if state.closed.load(Ordering::SeqCst) {
             return;
         }
-        // Debounce: keep sleeping while new notifications keep arriving.
+        // A short window first, which takes in the several events one save
+        // makes (they come within microseconds). Changes still arriving late
+        // in it mean something bigger is going on (a checkout, a build):
+        // then wait until things have been quiet for the full debounce.
+        let start = Instant::now();
+        let mut last = start;
+        let window = tokio::time::sleep(FIRST_DELAY);
+        tokio::pin!(window);
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(DEBOUNCE) => break,
+                _ = &mut window => break,
                 _ = state.notify.notified() => {
                     if state.closed.load(Ordering::SeqCst) { return; }
+                    last = Instant::now();
+                }
+            }
+        }
+        if last.duration_since(start) > FIRST_DELAY / 2 {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(DEBOUNCE) => break,
+                    _ = state.notify.notified() => {
+                        if state.closed.load(Ordering::SeqCst) { return; }
+                    }
                 }
             }
         }

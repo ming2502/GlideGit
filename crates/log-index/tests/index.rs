@@ -731,3 +731,83 @@ fn first_pages_are_served_before_the_index_is_loaded() {
         assert_eq!(p.graph, loaded.graph, "graph at {start}");
     }
 }
+
+/// A history with tags all along it, like a project that tags every
+/// release. `skew` puts one tagged side commit's date in the future.
+fn tagged_history(f: &Fixture, n: usize, skew: bool) {
+    let mut s = String::new();
+    for i in 1..=n {
+        let msg = format!("commit {i}");
+        s.push_str(&format!(
+            "commit refs/heads/main\nmark :{i}\ncommitter T <t@x> {} +0000\ndata {}\n{msg}\n",
+            1_600_000_000 + i * 60,
+            msg.len()
+        ));
+        if i > 1 {
+            s.push_str(&format!("from :{}\n", i - 1));
+        }
+        if i % 50 == 0 {
+            s.push_str(&format!("reset refs/tags/v{i}\nfrom :{i}\n\n"));
+        }
+    }
+    if skew {
+        // A tagged child of a recent commit, dated before everything else:
+        // the quick page leaves its (old-looking) tag out, but in date order
+        // the recent parent must wait for it, which changes the first rows.
+        let msg = "from the past";
+        s.push_str(&format!(
+            "commit refs/heads/skewed\nmark :{}\ncommitter T <t@x> 1500000000 +0000\ndata {}\n{msg}\nfrom :{}\n\nreset refs/tags/skewed\nfrom :{}\n\nreset refs/heads/skewed\nfrom :1\n\n",
+            n + 1,
+            msg.len(),
+            n - 10,
+            n + 1
+        ));
+    }
+    f.repo
+        .cli()
+        .run(
+            f.repo.root(),
+            &["fast-import", "--quiet"],
+            RunOptions::write().stdin(s),
+        )
+        .unwrap();
+    f.git(&["checkout", "-q", "main"]);
+}
+
+#[test]
+fn quick_first_page_with_many_tags_matches_git() {
+    let f = Fixture::new();
+    tagged_history(&f, 3000, false);
+    let idx = f.index();
+    let firsts: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    idx.update(&f.repo, &CancelToken::new(), &|s| {
+        if !s.complete && s.total > 0 {
+            firsts.lock().unwrap().push(s.total);
+        }
+    })
+    .unwrap();
+    // The quick page (300 rows) comes first, then the full build carries on.
+    assert_eq!(firsts.into_inner().unwrap().first(), Some(&300));
+    assert_eq!(all_oids(&idx), f.expected());
+    assert_topological(&idx);
+    assert_pages_match_reference(&idx);
+}
+
+#[test]
+fn quick_first_page_survives_clock_skew() {
+    let f = Fixture::new();
+    tagged_history(&f, 3000, true);
+    // Without the old-looking tag the first rows really are different, so
+    // the build has to notice and start over.
+    let from_main: Vec<String> = f
+        .git(&["log", "--date-order", "--format=%H", "-n", "300", "main"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_ne!(from_main, f.expected()[..300]);
+    let idx = f.index();
+    update(&idx, &f.repo);
+    assert_eq!(all_oids(&idx), f.expected());
+    assert_topological(&idx);
+    assert_pages_match_reference(&idx);
+}

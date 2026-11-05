@@ -26,8 +26,6 @@ function branch(name: string, extra: Partial<Branch> = {}): Branch {
     behind: 0,
     isHead: false,
     isRemote,
-    commitTime: now - 3600,
-    subject: "subject",
     ...extra,
   };
 }

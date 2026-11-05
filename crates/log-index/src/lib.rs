@@ -904,6 +904,7 @@ impl LogIndex {
         on_status: &dyn Fn(LogStatus),
     ) -> Result<()> {
         let tips = new.tips.clone();
+        let quick_tips = new.clone();
         self.apply(
             w,
             |w| {
@@ -959,11 +960,58 @@ impl LogIndex {
 
                 let mut next = 0i64;
                 let mut tracker = Tracker::default();
+                // While git works out the full order, show a first page from
+                // the newest tips (see `quick_prefix`); the full stream then
+                // has to agree with it row by row.
+                let mut prefix = match quick_prefix(repo, &quick_tips, cancel) {
+                    Some(rows) => {
+                        let mut first = rows.clone();
+                        self.append(w, &mut first, &mut next, &mut tracker)?;
+                        on_status(self.status());
+                        rows
+                    }
+                    None => Vec::new(),
+                };
+                let mut verified = 0;
                 let written = rx.iter().try_for_each(|mut rows| {
+                    if verified < prefix.len() {
+                        let same = rows
+                            .iter()
+                            .zip(&prefix[verified..])
+                            .take_while(|(a, b)| a.oid == b.oid)
+                            .count();
+                        if verified + same == prefix.len() || same == rows.len() {
+                            verified += same;
+                            rows.drain(..same);
+                        } else {
+                            // The full order differs (clock skew): start over
+                            // with what git says, the matching rows included.
+                            tracing::info!(
+                                "log index: quick first page differed at row {}",
+                                verified + same
+                            );
+                            let mut redo: Vec<Record> = prefix[..verified].to_vec();
+                            redo.append(&mut rows);
+                            rows = redo;
+                            prefix.clear();
+                            self.reset_rows(w)?;
+                            next = 0;
+                            tracker = Tracker::default();
+                        }
+                    }
                     self.append(w, &mut rows, &mut next, &mut tracker)?;
                     on_status(self.status());
                     Ok::<_, IndexError>(())
                 });
+                if written.is_ok() && verified < prefix.len() {
+                    // The full history is shorter than the quick page: keep what git said.
+                    tracing::info!("log index: quick first page longer than history");
+                    let mut redo: Vec<Record> = prefix[..verified].to_vec();
+                    self.reset_rows(w)?;
+                    next = 0;
+                    tracker = Tracker::default();
+                    self.append(w, &mut redo, &mut next, &mut tracker)?;
+                }
                 drop(rx);
                 let streamed = reader.join().expect("git log reader panicked");
                 written?;
@@ -980,6 +1028,19 @@ impl LogIndex {
                 w.set_meta("complete", "1")
             },
             |st, ()| st.complete = true,
+        )
+    }
+
+    /// Drop every row written so far by the running full build.
+    fn reset_rows(&self, w: &mut Writer) -> Result<()> {
+        self.apply(
+            w,
+            |w| Ok(w.conn.execute_batch("DELETE FROM commits;")?),
+            |st, ()| {
+                st.order.clear();
+                st.checkpoints.clear();
+                st.version += 1;
+            },
         )
     }
 
@@ -1080,6 +1141,67 @@ fn init_schema(conn: &Connection, root: &str) -> Result<()> {
 }
 
 /// `--stdin` input for rev-list/log: `include` tips, minus history of `exclude`.
+/// Tips beyond this many make a quick first page worthwhile.
+const QUICK_MIN_TIPS: usize = 16;
+
+/// The first rows of `git log --date-order` over all `tips`, computed from
+/// the newest tips only.
+///
+/// With many tips spread through a long history (tags of every release),
+/// git walks far down before it prints the first commit: 1.3 s on a million
+/// commits with 800 refs, against 40 ms from HEAD alone. Date order puts a
+/// commit after every newer one (barring clock skew), so tips older than the
+/// oldest of the first rows cannot change them: leave those out, check that
+/// they are indeed older, and add any that are not. `None` when it does not
+/// apply (few tips, short history) or cannot be shown to be the same.
+fn quick_prefix(repo: &Repo, tips: &RefTips, cancel: &CancelToken) -> Option<Vec<Record>> {
+    if tips.tips.len() <= QUICK_MIN_TIPS {
+        return None;
+    }
+    // Unknown dates (detached HEAD) count as newest: always included.
+    let mut by_age: Vec<(&String, i64)> = tips
+        .tips
+        .iter()
+        .map(|t| (t, *tips.times.get(t).unwrap_or(&i64::MAX)))
+        .collect();
+    by_age.sort_by_key(|&(_, t)| std::cmp::Reverse(t));
+    let mut take = QUICK_MIN_TIPS;
+    for _ in 0..3 {
+        let chosen: Vec<String> = by_age[..take].iter().map(|(t, _)| (*t).clone()).collect();
+        let limit = format!("--max-count={FIRST_BATCH}");
+        let mut rows = Vec::new();
+        let mut parser = RecordParser::default();
+        repo.cli()
+            .run_streaming(
+                repo.root(),
+                &["log", "--date-order", FORMAT, &limit, "--stdin"],
+                RunOptions::read()
+                    .stdin(rev_input(&chosen, &[]))
+                    .cancel(cancel.clone()),
+                |chunk| {
+                    parser.feed(chunk, |r| rows.push(r));
+                    true
+                },
+            )
+            .ok()?;
+        if rows.len() < FIRST_BATCH {
+            return None;
+        }
+        let oldest = rows.iter().map(|r| r.commit_time).min()?;
+        // Left-out tips at least as new as the oldest row could belong among
+        // the first rows: take them too and try again.
+        let newer = by_age[take..]
+            .iter()
+            .take_while(|(_, t)| *t >= oldest)
+            .count();
+        if newer == 0 {
+            return Some(rows);
+        }
+        take += newer;
+    }
+    None
+}
+
 fn rev_input(include: &[String], exclude: &[String]) -> Vec<u8> {
     let mut s = String::new();
     for t in include {

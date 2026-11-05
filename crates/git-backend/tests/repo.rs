@@ -1557,3 +1557,47 @@ fn shelve_rejects_nothing_and_unborn() {
     assert!(repo.shelve(&s(&["a.txt"]), "n", None).is_err());
     assert!(repo.shelve(&s(&["../x"]), "n", None).is_err());
 }
+
+#[test]
+fn file_texts_for_deleted_files_and_directories() {
+    let (dir, repo) = repo_with_commit();
+    let c1 = repo.log(None, 1).unwrap()[0].oid.clone();
+    write(dir.path(), "sub/x.txt", "x\n");
+    fs::remove_file(dir.path().join("b.txt")).unwrap();
+    repo.stage_all().unwrap();
+    let c2 = repo.commit("delete b, add sub", false).unwrap();
+    // Deleted: the old text, no new one.
+    let t = repo
+        .commit_file_texts(&c2, Some(&c1), "b.txt", None)
+        .unwrap();
+    assert_eq!((t.old.as_deref(), t.new.as_deref()), (Some("bee\n"), None));
+    // A directory is not a file on either side; the next object still reads fine.
+    let t = repo.commit_file_texts(&c2, Some(&c1), "sub", None).unwrap();
+    assert_eq!((t.old, t.new), (None, None));
+    let t = repo
+        .commit_file_texts(&c2, Some(&c1), "a.txt", None)
+        .unwrap();
+    assert_eq!(t.old, t.new);
+    assert!(t.new.is_some());
+}
+
+/// Once git has exited, a process still holding its output pipes (here a
+/// background `sleep` started through an alias) must not keep us waiting.
+#[cfg(unix)]
+#[test]
+fn exited_git_is_not_held_up_by_inherited_pipes() {
+    let (dir, _repo) = new_repo();
+    let t = std::time::Instant::now();
+    let out = cli()
+        .run(
+            dir.path(),
+            &["-c", "alias.bg=!echo started; sleep 20 &", "bg"],
+            RunOptions::read(),
+        )
+        .unwrap();
+    let took = t.elapsed();
+    assert!(took < std::time::Duration::from_secs(5), "waited {took:?}");
+    // What was written before git exited may be lost in this case; the call
+    // itself must succeed.
+    assert!(out.code == Some(0));
+}

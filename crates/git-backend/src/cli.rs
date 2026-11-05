@@ -263,7 +263,7 @@ impl GitCli {
     /// Run git and return the output whatever the exit code.
     pub fn run_unchecked(&self, cwd: &Path, args: &[&str], opts: RunOptions) -> Result<GitOutput> {
         let mut cmd = self.command(cwd, args, &opts);
-        let mut child = cmd.spawn()?;
+        let mut child = spawn(&mut cmd)?;
 
         // Feed stdin and drain stdout/stderr on helper threads to avoid pipe deadlocks.
         let stdin_thread = match (opts.stdin, child.stdin.take()) {
@@ -301,12 +301,8 @@ impl GitCli {
         if let Some(t) = stdin_thread {
             let _ = t.join();
         }
-        let stdout = stdout_thread
-            .map(|t| t.join().unwrap_or_default())
-            .unwrap_or_default();
-        let stderr = stderr_thread
-            .map(|t| t.join().unwrap_or_default())
-            .unwrap_or_default();
+        let stdout = stdout_thread.map(finish_reader).unwrap_or_default();
+        let stderr = stderr_thread.map(finish_reader).unwrap_or_default();
 
         Ok(GitOutput {
             stdout,
@@ -331,7 +327,7 @@ impl GitCli {
         mut on_stdout: impl FnMut(&[u8]) -> bool,
     ) -> Result<()> {
         let mut cmd = self.command(cwd, args, &opts);
-        let mut child = cmd.spawn()?;
+        let mut child = spawn(&mut cmd)?;
         let stdin_thread = match (opts.stdin, child.stdin.take()) {
             (Some(data), Some(mut pipe)) => Some(thread::spawn(move || {
                 let _ = pipe.write_all(&data);
@@ -365,9 +361,7 @@ impl GitCli {
         if let Some(t) = stdin_thread {
             let _ = t.join();
         }
-        let stderr = stderr_thread
-            .map(|t| t.join().unwrap_or_default())
-            .unwrap_or_default();
+        let stderr = stderr_thread.map(finish_reader).unwrap_or_default();
         if status.success() {
             Ok(())
         } else {
@@ -392,6 +386,24 @@ fn kill_tree(child: &mut std::process::Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// How long to wait for git's output pipes to close once git has exited.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+/// The output a reader thread collected. Normally the pipe closes when git
+/// exits; if another process still holds it (a grandchild git left running,
+/// or a pipe inherited by a process spawned at the same moment), give up
+/// after [`PIPE_GRACE`] rather than wait for that process.
+fn finish_reader(t: thread::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    let deadline = Instant::now() + PIPE_GRACE;
+    while !t.is_finished() {
+        if Instant::now() > deadline {
+            return Vec::new();
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    t.join().unwrap_or_default()
 }
 
 fn spawn_reader<R: Read + Send + 'static>(mut r: R) -> thread::JoinHandle<Vec<u8>> {
@@ -457,6 +469,20 @@ fn clean_stderr(stderr: &str) -> String {
     } else {
         lines.join("\n")
     }
+}
+
+/// Start a child process, one at a time.
+///
+/// On macOS the standard library creates a child's pipes and only then marks
+/// them close-on-exec. A process started from another thread in between
+/// inherits them, and a short command's output then stays open until that
+/// other (possibly long-running) process exits: a quick `git status` could
+/// wait for a whole `git log` of a million commits, or deadlock with it.
+/// Spawning takes a millisecond or two; serialising it costs nothing.
+fn spawn(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    static SPAWN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SPAWN.lock().unwrap_or_else(|e| e.into_inner());
+    cmd.spawn()
 }
 
 #[cfg(test)]

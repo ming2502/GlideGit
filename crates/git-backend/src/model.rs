@@ -74,9 +74,6 @@ pub struct Branch {
     pub behind: u32,
     pub is_head: bool,
     pub is_remote: bool,
-    /// Committer time of the tip, unix seconds.
-    pub commit_time: i64,
-    pub subject: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

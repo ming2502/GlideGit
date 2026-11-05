@@ -116,7 +116,7 @@ fn change_kind(c: char) -> Option<ChangeKind> {
 // git for-each-ref
 // ---------------------------------------------------------------------------
 
-pub const FOR_EACH_REF_FORMAT: &str = "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(HEAD)%00%(committerdate:unix)%00%(contents:subject)%00%(symref)";
+pub const FOR_EACH_REF_FORMAT: &str = "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(HEAD)%00%(symref)";
 
 /// Returns `(local, remote)` branches in the order git printed them.
 pub fn parse_for_each_ref(text: &str) -> (Vec<Branch>, Vec<Branch>) {
@@ -124,11 +124,11 @@ pub fn parse_for_each_ref(text: &str) -> (Vec<Branch>, Vec<Branch>) {
     let mut remote = Vec::new();
     for line in text.lines() {
         let f: Vec<&str> = line.split('\0').collect();
-        if f.len() < 9 {
+        if f.len() < 7 {
             continue;
         }
         // Skip symbolic refs such as refs/remotes/origin/HEAD.
-        if !f[8].is_empty() {
+        if !f[6].is_empty() {
             continue;
         }
         let full_ref = f[0];
@@ -144,8 +144,6 @@ pub fn parse_for_each_ref(text: &str) -> (Vec<Branch>, Vec<Branch>) {
             behind,
             is_head: f[5] == "*",
             is_remote,
-            commit_time: f[6].parse().unwrap_or(0),
-            subject: f[7].to_string(),
         };
         if is_remote {
             remote.push(branch);
@@ -862,11 +860,10 @@ u UU N... 100644 100644 100644 100644 a b c conflict.txt\0\
 
     #[test]
     fn for_each_ref() {
-        let raw =
-            "refs/heads/main\0main\0abc\0origin/main\0ahead 1, behind 2\0*\x001700000000\0init\0\n\
-refs/heads/old\0old\0def\0origin/old\0gone\0 \x001600000000\0x\0\n\
-refs/remotes/origin/HEAD\0origin\0abc\0\0\0 \x001700000000\0init\0refs/remotes/origin/main\n\
-refs/remotes/origin/main\0origin/main\0abc\0\0\0 \x001700000000\0init\0\n";
+        let raw = "refs/heads/main\0main\0abc\0origin/main\0ahead 1, behind 2\0*\0\n\
+refs/heads/old\0old\0def\0origin/old\0gone\0 \0\n\
+refs/remotes/origin/HEAD\0origin\0abc\0\0\0 \0refs/remotes/origin/main\n\
+refs/remotes/origin/main\0origin/main\0abc\0\0\0 \0\n";
         let (local, remote) = parse_for_each_ref(raw);
         assert_eq!(local.len(), 2);
         assert_eq!(remote.len(), 1);
@@ -890,8 +887,6 @@ refs/remotes/origin/main\0origin/main\0abc\0\0\0 \x001700000000\0init\0\n";
                 behind: 0,
                 is_head: false,
                 is_remote: false,
-                commit_time: 0,
-                subject: String::new(),
             })
             .collect();
         let reflog = "checkout: moving from feat to main\ncommit: x\ncheckout: moving from main to feat\ncheckout: moving from fix to main\ncheckout: moving from main to deleted\n";

@@ -31,6 +31,8 @@
 | 选中提交 → 显示 diff | < 100ms |
 | 保存文件 → Commit 面板更新 | < 300ms |
 
+基准实现见 `crates/bench`（M4-1）：在生成的 100 万提交、2 万文件、800 个引用的仓库上逐项测量，CI 的 `perf` 任务在 macOS 和 Windows 上运行。Log 滚动和分支弹窗的绘制取决于 WebView，基准检查的是它们的数据部分（读一页 < 16 ms，分支列表 < 50 ms）。
+
 ---
 
 ## 2. 功能设计
@@ -188,7 +190,7 @@ struct Task { id, repo, kind, priority, cancel: CancellationToken, progress: Sen
 ### 4.5 Status 与 Watcher
 
 - 监听工作区与 `.git/{HEAD,index,refs,packed-refs,MERGE_HEAD,rebase-merge,rebase-apply}`。
-- 150ms 去抖合并；忽略 `.git/objects`、`*.lock` 等噪声。
+- 去抖：变化后先等 40ms（合并一次保存产生的多个事件）；窗口后半段仍有事件时，改为等待 150ms 的静默期。忽略 `.git/objects`、`*.lock` 等噪声。
 - 大仓库建议开启 `core.fsmonitor` 与 `core.untrackedCache`。
 
 ### 4.6 前端渲染

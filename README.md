@@ -13,6 +13,7 @@ Tauri 2 · Rust（`crates/`）· React + TypeScript（`ui/`）· 系统 git CLI
 crates/git-backend  git CLI 封装、porcelain 解析、领域模型（导出 TS 类型）
 crates/log-index    Log 提交索引：流式首屏、SQLite 落盘、增量更新
 crates/core         RepoSession：串行写、文件监听、快照发布、索引更新、操作日志与撤销
+crates/bench        性能基准：生成大仓库，对照设计文档的性能目标逐项检查
 crates/app          Tauri 入口与 IPC 命令
 ui/                 前端（Vite + React + Zustand）
 ```
@@ -30,6 +31,7 @@ pnpm test             # 前端单元测试（vitest）
 pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
 cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log 索引基准
 cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   # 刷新耗时基准
+cargo run --release -p glide-bench -- [--commits N] [--only log,open,branches,diff,save]   # 性能目标逐项检查（DESIGN §1.2）
 ```
 
 ## 快捷键（IntelliJ 预设）

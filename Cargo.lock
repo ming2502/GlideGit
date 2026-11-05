@@ -1120,6 +1120,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "glide-bench"
+version = "0.1.0"
+dependencies = [
+ "glide-core",
+ "glide-git-backend",
+ "glide-log-index",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "glide-core"
 version = "0.1.0"
 dependencies = [

@@ -47,3 +47,51 @@ jobs:
       - name: Generated TS bindings are up to date
         shell: bash
         run: git diff --exit-code -- ui/src/bindings
+
+  # Performance targets from docs/DESIGN.md §1.2, on a generated repository
+  # (1M commits, 20k files, 800 refs). Shared runners are slower and noisier
+  # than a desktop, hence the slack factor on the thresholds.
+  perf:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: perf
+
+      - name: Build benchmarks
+        run: cargo build --release -p glide-bench
+
+      # Generating a million commits takes minutes: keep the repository
+      # until the generator changes.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/glidegit-bench/repo-1000000c-20000f-800r
+          key: bench-repo-${{ runner.os }}-${{ hashFiles('crates/bench/src/generate.rs') }}
+
+      - name: Run benchmarks
+        shell: bash
+        run: >
+          ./target/release/glide-bench
+          --commits 1000000 --files 20000 --refs 800
+          --work "${{ runner.temp }}/glidegit-bench"
+          --slack 1.5
+          --json perf-${{ matrix.os }}.json
+          --markdown perf-${{ matrix.os }}.md
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: cat perf-${{ matrix.os }}.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-${{ matrix.os }}
+          path: perf-${{ matrix.os }}.*
