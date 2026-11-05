@@ -11,10 +11,12 @@
 //! times `--slack` (shared CI runners are slower and noisier than a desktop);
 //! the exit status is 1 when any check fails, unless `--no-fail`.
 //!
-//! The rendering targets (Log scrolling at 60 fps, the branch popup's first
-//! paint) depend on the WebView, not on this code; the backend side of each
-//! is checked here: reading a page of the Log must fit in a frame, and the
-//! branch list the popup shows must be ready well within its budget.
+//! The rendering targets (Log scrolling at 60 fps, opening the branch popup)
+//! depend on the WebView, not on this code. What the backend contributes is
+//! checked instead: reading a page of the Log must fit in a frame; the popup
+//! shows the branch list already in the snapshot, so the check is how fast
+//! that list is refreshed after refs change (one git process, 100 ms budget:
+//! starting a process alone can take 50–100 ms on a Windows CI runner).
 
 mod generate;
 
@@ -323,10 +325,10 @@ fn bench_branches(b: &mut Bench, repo_path: &Path) {
     let n = repo.branches().unwrap().local.len();
     b.check(
         "branches",
-        "分支弹窗的数据（读取全部分支）",
-        50.0,
+        "引用变化后刷新分支列表",
+        100.0,
         median(times),
-        format!("{n} 个本地分支，10 次中位数；弹窗本身直接用快照中已有的列表"),
+        format!("{n} 个本地分支，10 次中位数；打开分支弹窗不调用后端，直接用快照中的列表"),
     );
 }
 
