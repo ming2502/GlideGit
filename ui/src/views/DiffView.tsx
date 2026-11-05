@@ -105,8 +105,8 @@ export function TextsDiff({
   const setHandle = useCallback((h: CodeDiffHandle | null) => (nav.current = h), []);
 
   useActions([
-    { id: "diff.next", title: "Next Change", keys: ["f7"], run: () => nav.current?.go(1) },
-    { id: "diff.prev", title: "Previous Change", keys: ["shift+f7"], run: () => nav.current?.go(-1) },
+    { id: "diff.next", keywords: "下一处修改 下一个差异", title: "Next Change", keys: ["f7"], run: () => nav.current?.go(1) },
+    { id: "diff.prev", keywords: "上一处修改 上一个差异", title: "Previous Change", keys: ["shift+f7"], run: () => nav.current?.go(-1) },
   ]);
 
   const { name, dir } = splitPath(path);

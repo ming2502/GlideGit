@@ -1,5 +1,5 @@
 // Single source of truth for every user-invokable action. Menus, buttons,
-// shortcuts and (later) the command palette all resolve through here.
+// shortcuts and the command palette all resolve through here.
 import { useEffect, useRef } from "react";
 import { isMac } from "../lib/format";
 
@@ -10,6 +10,10 @@ export interface Action {
   keys?: string[];
   run: () => void;
   enabled?: () => boolean;
+  /** Other words the command palette should find it by (e.g. Chinese names). */
+  keywords?: string;
+  /** Leave out of the command palette. */
+  hidden?: boolean;
 }
 
 const registry = new Map<string, Action>();
@@ -32,6 +36,11 @@ export function getAction(id: string): Action | undefined {
   return registry.get(id);
 }
 
+/** Every registered action, for the command palette. */
+export function listActions(): Action[] {
+  return [...registry.values()];
+}
+
 /** Register actions for the lifetime of a component; always calls the latest closures. */
 export function useActions(actions: Action[]): void {
   const latest = useRef(actions);
@@ -42,6 +51,8 @@ export function useActions(actions: Action[]): void {
       id: a.id,
       title: a.title,
       keys: a.keys,
+      keywords: a.keywords,
+      hidden: a.hidden,
       run: () => latest.current[i]?.run(),
       enabled: () => latest.current[i]?.enabled?.() ?? true,
     }));

@@ -66,6 +66,8 @@ interface RepoState {
   branchPopup: boolean;
   /** The undo center (operation log) popup is open. */
   undoCenter: boolean;
+  /** The command palette is open. */
+  palette: boolean;
   /** Changelists of the active repository, once loaded. */
   changelists: { root: string; state: Changelists } | null;
   confirm: ConfirmRequest | null;
@@ -121,6 +123,7 @@ interface RepoState {
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
   setUndoCenter: (open: boolean) => void;
+  setPalette: (open: boolean) => void;
   loadChangelists: () => Promise<void>;
   /** Change the changelists (applied at once, then saved). */
   updateChangelists: (fn: (s: Changelists) => Changelists) => void;
@@ -160,6 +163,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   toasts: [],
   branchPopup: false,
   undoCenter: false,
+  palette: false,
   changelists: null,
   confirm: null,
   pushDialog: false,
@@ -379,6 +383,7 @@ export const useRepo = create<RepoState>((set, get) => ({
 
   setBranchPopup: (branchPopup) => set({ branchPopup }),
   setUndoCenter: (undoCenter) => set({ undoCenter }),
+  setPalette: (palette) => set({ palette }),
   async loadChangelists() {
     const root = get().root;
     if (!root) return;

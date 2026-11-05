@@ -33,6 +33,12 @@ export const PushIcon = () => (
     <path d="M8 13.5v-9M4.5 8 8 4.5 11.5 8" />
   </svg>
 );
+export const SearchIcon = () => (
+  <svg {...base}>
+    <circle cx="7" cy="7" r="4.2" />
+    <path d="m10.2 10.2 3.3 3.3" />
+  </svg>
+);
 export const UndoIcon = () => (
   <svg {...base}>
     <path d="M5.5 3.5 2.5 6.5l3 3M2.8 6.5H10a3.5 3.5 0 0 1 0 7H7" />

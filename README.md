@@ -48,6 +48,7 @@ cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   #
 | 下一处 / 上一处修改（diff） | F7 / ⇧F7 | F7 / Shift+F7 |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
+| 命令面板（Find Action） | ⌘⇧A 或双击 Shift | Ctrl+Shift+A 或双击 Shift |
 | 撤销中心（撤销最近的操作） | ⌘⇧U | Ctrl+Shift+U |
 | 移动到另一个 Changelist | F6 | F6 |
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |

@@ -226,6 +226,7 @@ export function CommitPanel() {
   useActions([
     {
       id: "commit.focus",
+      keywords: "提交 写提交信息",
       title: "Commit…",
       keys: ["mod+k"],
       run: () => {
@@ -233,9 +234,10 @@ export function CommitPanel() {
         msgRef.current?.focus();
       },
     },
-    { id: "commit.run", title: "Commit", keys: ["mod+enter"], run: () => void commit(false), enabled: () => canCommit },
+    { id: "commit.run", keywords: "提交", title: "Commit", keys: ["mod+enter"], run: () => void commit(false), enabled: () => canCommit },
     {
       id: "commit.runAndPush",
+      keywords: "提交并推送",
       title: "Commit and Push",
       keys: ["mod+alt+k"],
       run: () => void commit(true),
@@ -243,6 +245,7 @@ export function CommitPanel() {
     },
     {
       id: "changes.rollback",
+      keywords: "回滚 还原 丢弃修改 revert discard",
       title: "Rollback…",
       keys: ["mod+alt+z"],
       run: () => selectedChange && void rollback([selectedChange]),
@@ -250,6 +253,7 @@ export function CommitPanel() {
     },
     {
       id: "changes.moveToList",
+      keywords: "移动到另一个 Changelist 变更列表",
       title: "Move to Another Changelist…",
       keys: ["f6"],
       run: () => selectedChange && startMove([selectedChange]),
@@ -257,12 +261,14 @@ export function CommitPanel() {
     },
     {
       id: "changes.newList",
+      keywords: "新建 Changelist 变更列表",
       title: "New Changelist…",
       run: () => setDialog({ kind: "new", paths: [] }),
       enabled: () => cl != null,
     },
     {
       id: "changes.shelve",
+      keywords: "搁置 shelve",
       title: "Shelve Changes…",
       run: () => selectedChange && startShelve([selectedChange]),
       enabled: () => selectedChange != null && !selectedChange.conflicted,

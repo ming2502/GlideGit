@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { PullMode } from "../api";
 import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
-import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon, UndoIcon } from "../components/Icons";
+import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, UndoIcon } from "../components/Icons";
 import { repoName } from "../lib/format";
 import { useRepo, type Task } from "../stores/repo";
 import { useOperationLog } from "./UndoCenter";
@@ -83,6 +83,9 @@ export function Toolbar() {
       <button className="tb-icon" onClick={() => runAction("git.push")} title={`Push… ${shortcutOf("git.push")}`}>
         <PushIcon />
         {head.ahead > 0 && <span className="badge">{head.ahead}</span>}
+      </button>
+      <button className="tb-icon" onClick={() => runAction("palette.open")} title={`查找操作 ${shortcutOf("palette.open")}（或双击 Shift）`}>
+        <SearchIcon />
       </button>
       <button
         className="tb-icon"

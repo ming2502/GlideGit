@@ -203,13 +203,15 @@ struct Task { id, repo, kind, priority, cancel: CancellationToken, progress: Sen
 
 所有功能注册为 `Action { id, title, keybinding, when(context), run }`；菜单、右键、命令面板、快捷键全部由注册表生成。提供 "IntelliJ" 键位预设（macOS: Cmd，Windows: Ctrl）。
 
+实现（M3-9）：`Action { id, title, keys, enabled, keywords, hidden, run }`。组件用 `useActions` 在挂载期间注册，注册表始终调用最新的闭包。全局键盘处理在有 `aria-modal` 对话框时暂停。命令面板直接读取注册表（`keywords` 提供中文别名），再加上来自当前快照的分支、已修改文件和最近的仓库。
+
 | Action | macOS | Windows |
 |---|---|---|
 | 提交 | ⌘K | Ctrl+K |
 | 推送 | ⌘⇧K | Ctrl+Shift+K |
 | 拉取 / 更新 | ⌘T | Ctrl+T |
 | 分支弹窗 | ⌘⇧` | Ctrl+Shift+` |
-| 命令面板 | ⌘⇧A | Ctrl+Shift+A |
+| 命令面板 | ⌘⇧A / 双击 Shift | Ctrl+Shift+A / 双击 Shift |
 | 刷新 | ⌘R | Ctrl+R |
 
 ---

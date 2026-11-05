@@ -264,6 +264,7 @@ export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange
   useActions([
     {
       id: "log.find",
+      keywords: "在 Log 中搜索 查找提交 search",
       title: "Find in Log",
       keys: ["mod+f"],
       run: () => {

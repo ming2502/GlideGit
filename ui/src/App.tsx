@@ -22,6 +22,7 @@ import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
 import { TabBar } from "./views/TabBar";
 import { UndoCenter } from "./views/UndoCenter";
+import { CommandPalette, installDoubleShift } from "./views/CommandPalette";
 import { Welcome } from "./views/Welcome";
 
 export function App() {
@@ -35,6 +36,7 @@ export function App() {
   const [restored, setRestored] = useState(false);
 
   useEffect(() => installKeyHandler(), []);
+  useEffect(() => installDoubleShift(() => useRepo.getState().setPalette(true)), []);
 
   useEffect(() => {
     api.appInfo().then(setInfo).catch(() => {});
@@ -58,9 +60,17 @@ export function App() {
   }, []);
 
   useActions([
-    { id: "repo.open", title: "Open Repository…", keys: ["mod+o"], run: () => void pickRepository() },
+    {
+      id: "palette.open",
+      title: "Find Action…",
+      keys: ["mod+shift+a", "mod+shift+p"],
+      hidden: true,
+      run: () => useRepo.getState().setPalette(true),
+    },
+    { id: "repo.open", keywords: "打开仓库 open project", title: "Open Repository…", keys: ["mod+o"], run: () => void pickRepository() },
     {
       id: "repo.refresh",
+      keywords: "刷新 reload",
       title: "Refresh",
       keys: ["mod+r", "f5"],
       enabled: () => !!useRepo.getState().root,
@@ -71,6 +81,7 @@ export function App() {
     },
     {
       id: "branches.popup",
+      keywords: "分支 切换分支 checkout branch",
       title: "Branches…",
       keys: ["mod+shift+backquote", "mod+b"],
       enabled: () => !!useRepo.getState().root,
@@ -81,18 +92,21 @@ export function App() {
     },
     {
       id: "tabs.next",
+      keywords: "下一个仓库标签",
       title: "Next Repository Tab",
       keys: ["mod+shift+bracketright", "ctrl+tab"],
       run: () => useRepo.getState().cycleTab(1),
     },
     {
       id: "tabs.prev",
+      keywords: "上一个仓库标签",
       title: "Previous Repository Tab",
       keys: ["mod+shift+bracketleft", "ctrl+shift+tab"],
       run: () => useRepo.getState().cycleTab(-1),
     },
     {
       id: "tabs.close",
+      keywords: "关闭仓库标签",
       title: "Close Repository Tab",
       keys: ["mod+alt+w"],
       enabled: () => !!useRepo.getState().root,
@@ -100,16 +114,18 @@ export function App() {
     },
     {
       id: "git.undoCenter",
-      title: "撤销中心…",
+      keywords: "撤销中心 操作记录 undo history oplog",
+      title: "Undo Center…",
       keys: ["mod+shift+u"],
       run: () => useRepo.getState().setUndoCenter(true),
       enabled: () => !!useRepo.getState().root,
     },
-    { id: "view.changes", title: "Commit", keys: ["mod+0"], run: () => useRepo.getState().setView("changes") },
-    { id: "view.log", title: "Log", keys: ["mod+9"], run: () => useRepo.getState().setView("log") },
-    { id: "view.stash", title: "Stash", keys: ["mod+8"], run: () => useRepo.getState().setView("stash") },
+    { id: "view.changes", keywords: "提交视图 变更 changes", title: "Go to Commit View", keys: ["mod+0"], run: () => useRepo.getState().setView("changes") },
+    { id: "view.log", keywords: "日志 历史 提交历史 history", title: "Go to Log", keys: ["mod+9"], run: () => useRepo.getState().setView("log") },
+    { id: "view.stash", keywords: "储藏 搁置 shelf", title: "Go to Stash / Shelf", keys: ["mod+8"], run: () => useRepo.getState().setView("stash") },
     {
       id: "git.stash",
+      keywords: "储藏修改 stash",
       title: "Stash Changes…",
       keys: ["mod+shift+s"],
       enabled: () => !!useRepo.getState().snapshot?.changes.length,
@@ -117,12 +133,14 @@ export function App() {
     },
     {
       id: "git.fetch",
+      keywords: "获取 抓取",
       title: "Fetch",
       enabled: () => !!useRepo.getState().root,
       run: () => void useRepo.getState().runRemote("Fetch", (r, id) => api.fetch(r, id), "Fetch 完成"),
     },
     {
       id: "git.pull",
+      keywords: "拉取 更新项目 update",
       title: "Update Project (Pull)",
       keys: ["mod+t"],
       enabled: () => !!useRepo.getState().root,
@@ -133,6 +151,7 @@ export function App() {
     },
     {
       id: "git.push",
+      keywords: "推送",
       title: "Push…",
       keys: ["mod+shift+k"],
       enabled: () => !!useRepo.getState().root,
@@ -160,6 +179,7 @@ export function App() {
       <StatusBar gitVersion={info?.gitVersion ?? ""} />
       <BranchPopup />
       <UndoCenter />
+      <CommandPalette />
       <PushDialog />
       <StashDialog />
       <RebaseDialog />
