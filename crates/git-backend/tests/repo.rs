@@ -1406,3 +1406,57 @@ fn file_and_line_history() {
     );
     assert!(repo.line_history("new.txt", 3, 2, None).is_err());
 }
+
+#[test]
+fn compare_branches_and_files() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    write(root, "a.txt", "base\n");
+    repo.stage_all().unwrap();
+    let base = repo.commit("base", false).unwrap();
+    repo.create_branch("feature", None, true).unwrap();
+    write(root, "f.txt", "feature\n");
+    repo.stage_all().unwrap();
+    repo.commit("f1", false).unwrap();
+    write(root, "a.txt", "feature edit\n");
+    repo.stage_all().unwrap();
+    let f2 = repo.commit("f2", false).unwrap();
+    repo.checkout_branch("main", false).unwrap();
+    write(root, "m.txt", "main\n");
+    repo.stage_all().unwrap();
+    let m1 = repo.commit("m1", false).unwrap();
+
+    let c = repo.compare("feature", "main", 100).unwrap();
+    assert_eq!(c.left_oid, f2);
+    assert_eq!(c.right_oid, m1);
+    assert_eq!(c.merge_base.as_deref(), Some(base.as_str()));
+    let subj = |v: &[CommitSummary]| v.iter().map(|c| c.subject.clone()).collect::<Vec<_>>();
+    assert_eq!(subj(&c.only_left), ["f2", "f1"]);
+    assert_eq!(subj(&c.only_right), ["m1"]);
+    assert_eq!((c.only_left_count, c.only_right_count), (2, 1));
+    // The cap only limits the lists, not the counts.
+    let capped = repo.compare("feature", "main", 1).unwrap();
+    assert_eq!((capped.only_left.len(), capped.only_left_count), (1, 2));
+
+    // Tip to tip: everything that differs. Since the fork: only feature's work.
+    let paths = |v: Vec<CommitFile>| v.into_iter().map(|f| (f.path, f.kind)).collect::<Vec<_>>();
+    assert_eq!(
+        paths(repo.diff_files(&m1, &f2).unwrap()),
+        [
+            ("a.txt".to_string(), ChangeKind::Modified),
+            ("f.txt".to_string(), ChangeKind::Added),
+            ("m.txt".to_string(), ChangeKind::Deleted),
+        ]
+    );
+    assert_eq!(
+        paths(repo.diff_files(&base, &f2).unwrap()),
+        [
+            ("a.txt".to_string(), ChangeKind::Modified),
+            ("f.txt".to_string(), ChangeKind::Added)
+        ]
+    );
+
+    assert!(repo.compare("--all", "main", 10).is_err());
+    assert!(repo.compare("nope", "main", 10).is_err());
+    assert_eq!(repo.resolve_commit("HEAD").unwrap(), m1);
+}

@@ -388,6 +388,70 @@ input {
   display: flex;
 }
 
+/* --------------------------------------------------------------- compare */
+.cmp-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.cmp-tabs > button {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+}
+.cmp-tabs > button:hover {
+  background: var(--hover);
+}
+.cmp-tabs > button.on {
+  background: var(--selection);
+  color: var(--text);
+}
+.cmp-count {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 11px;
+}
+.cmp-mode {
+  width: auto;
+  margin-left: 8px;
+}
+.cmp-file .spacer {
+  flex: 1;
+}
+/* Narrow panes: keep the diff header on one line. */
+.diff-header {
+  min-width: 0;
+  overflow: hidden;
+}
+.diff-header > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.diff-header .muted {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mt-window .hv-body .hv-list {
+  width: 320px;
+}
+.bp-cmp {
+  font-size: 13px;
+}
+.bp-cmp:hover {
+  color: var(--accent);
+}
+
 /* -------------------------------------------------------------- annotate */
 .annotate-editor .cm-blame .cm-gutterElement {
   padding: 0;

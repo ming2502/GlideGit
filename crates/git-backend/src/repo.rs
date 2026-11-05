@@ -574,6 +574,81 @@ impl Repo {
         Ok(self.operation().is_none())
     }
 
+    /// Resolve a branch name, tag or commit id to a commit id.
+    pub fn resolve_commit(&self, rev: &str) -> Result<String> {
+        if rev.is_empty() || rev.starts_with('-') || rev.contains(char::is_whitespace) {
+            return Err(GitError::Invalid(format!("invalid revision: {rev:?}")));
+        }
+        let out = self
+            .read(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{rev}^{{commit}}"),
+            ])
+            .map_err(|_| GitError::Invalid(format!("no such branch or commit: {rev}")))?;
+        let oid = out.trim().to_string();
+        check_oid(&oid)?;
+        Ok(oid)
+    }
+
+    /// Compare two branches / commits: what each has that the other has not.
+    pub fn compare(&self, left: &str, right: &str, limit: usize) -> Result<BranchCompare> {
+        let l = self.resolve_commit(left)?;
+        let r = self.resolve_commit(right)?;
+        let merge_base = self
+            .read(&["merge-base", &l, &r])
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| check_oid(s).is_ok());
+        let counts = self.read(&["rev-list", "--left-right", "--count", &format!("{l}...{r}")])?;
+        let mut it = counts
+            .split_whitespace()
+            .map(|n| n.parse::<u32>().unwrap_or(0));
+        let (lc, rc) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
+        let n = format!("-n{limit}");
+        let side = |range: String| -> Result<Vec<CommitSummary>> {
+            Ok(parse::parse_log(&self.read(&[
+                "log",
+                parse::LOG_FORMAT,
+                "--decorate=short",
+                &n,
+                &range,
+                "--",
+            ])?))
+        };
+        Ok(BranchCompare {
+            only_left: side(format!("{r}..{l}"))?,
+            only_right: side(format!("{l}..{r}"))?,
+            only_left_count: lc,
+            only_right_count: rc,
+            left_oid: l,
+            right_oid: r,
+            merge_base,
+        })
+    }
+
+    /// Files that differ between two commits (renames detected).
+    pub fn diff_files(&self, from: &str, to: &str) -> Result<Vec<CommitFile>> {
+        check_oid(from)?;
+        check_oid(to)?;
+        let out = self.cli.run(
+            &self.root,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "-M",
+                "--raw",
+                "--numstat",
+                from,
+                to,
+            ],
+            RunOptions::read(),
+        )?;
+        Ok(parse::parse_diff_tree(&out.stdout))
+    }
+
     /// Commits that changed `path`, newest first, following renames.
     /// `skip` / `limit` page through long histories.
     pub fn file_history(&self, path: &str, skip: u32, limit: u32) -> Result<Vec<FileRevision>> {

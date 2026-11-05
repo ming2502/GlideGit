@@ -76,6 +76,8 @@ interface RepoState {
   logJump: string | null;
   /** History view: a file's history, or of lines `range` (1-based, inclusive) at `rev`. */
   history: { path: string; range?: [number, number]; rev?: string | null } | null;
+  /** Branch comparison: two refs (names or commit ids) with display names. */
+  compare: { left: string; right: string; leftName: string; rightName: string } | null;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -106,6 +108,7 @@ interface RepoState {
   setRebaseFrom: (commit: CommitSummary | null) => void;
   setAnnotate: (a: { path: string; rev: string | null } | null) => void;
   setHistory: (h: { path: string; range?: [number, number]; rev?: string | null } | null) => void;
+  setCompare: (c: { left: string; right: string; leftName: string; rightName: string } | null) => void;
   /** Switch to the Log and select this commit. */
   showInLog: (oid: string) => void;
   clearLogJump: () => void;
@@ -155,6 +158,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   annotate: null,
   logJump: null,
   history: null,
+  compare: null,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -347,7 +351,8 @@ export const useRepo = create<RepoState>((set, get) => ({
   setRebaseFrom: (rebaseFrom) => set({ rebaseFrom }),
   setAnnotate: (annotate) => set({ annotate }),
   setHistory: (history) => set({ history }),
-  showInLog: (oid) => set({ view: "log", logJump: oid, annotate: null, history: null }),
+  setCompare: (compare) => set({ compare }),
+  showInLog: (oid) => set({ view: "log", logJump: oid, annotate: null, history: null, compare: null }),
   clearLogJump: () => set({ logJump: null }),
 
   toast(t) {

@@ -513,6 +513,18 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "compare_branches":
+        return sleep(150).then(() => ({
+          leftOid: mockOid(0),
+          rightOid: mockOid(12),
+          mergeBase: mockOid(20),
+          onlyLeft: Array.from({ length: 12 }, (_, k) => mockCommit(k)),
+          onlyRight: [12, 13, 14].map((k) => mockCommit(k + 300)),
+          onlyLeftCount: 12,
+          onlyRightCount: 3,
+        }));
+      case "diff_files":
+        return sleep(100).then(() => mockFiles(7).concat(mockFiles(11)).filter((f, k, all) => all.findIndex((x) => x.path === f.path) === k));
       case "file_history": {
         const path = a.path as string;
         const all = Array.from({ length: 23 }, (_, k) => {

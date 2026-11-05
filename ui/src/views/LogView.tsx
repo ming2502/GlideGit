@@ -258,6 +258,16 @@ export function LogView() {
       },
       "separator",
       {
+        label: currentBranch ? `与 ${currentBranch} 比较` : "与 HEAD 比较",
+        onClick: () =>
+          useRepo.getState().setCompare({
+            left: c.oid,
+            right: "HEAD",
+            leftName: c.refs.find((r) => !r.startsWith("tag: "))?.replace("HEAD -> ", "") ?? c.oid.slice(0, 7),
+            rightName: currentBranch ?? "HEAD",
+          }),
+      },
+      {
         label: "从此提交开始交互式变基…",
         disabled: !!snapshot?.operation,
         onClick: () => useRepo.getState().setRebaseFrom(c),

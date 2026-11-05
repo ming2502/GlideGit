@@ -6,7 +6,9 @@ import type { DiffMode } from "./bindings/DiffMode";
 import type { FileTexts } from "./bindings/FileTexts";
 import type { AuthorCount } from "./bindings/AuthorCount";
 import type { Blame } from "./bindings/Blame";
+import type { BranchCompare } from "./bindings/BranchCompare";
 import type { CommitDetails } from "./bindings/CommitDetails";
+import type { CommitFile } from "./bindings/CommitFile";
 import type { FileRevision } from "./bindings/FileRevision";
 import type { CommitSummary } from "./bindings/CommitSummary";
 import type { ConflictSide } from "./bindings/ConflictSide";
@@ -94,6 +96,9 @@ export const api = {
   abortOperation: (root: string) => invoke<void>("abort_operation", { root }),
   continueOperation: (root: string) => invoke<void>("continue_operation", { root }),
   skipOperation: (root: string) => invoke<void>("skip_operation", { root }),
+  compareBranches: (root: string, left: string, right: string) =>
+    invoke<BranchCompare>("compare_branches", { root, left, right }),
+  diffFiles: (root: string, from: string, to: string) => invoke<CommitFile[]>("diff_files", { root, from, to }),
   fileHistory: (root: string, path: string, skip: number, limit: number) =>
     invoke<FileRevision[]>("file_history", { root, path, skip, limit }),
   lineHistory: (root: string, path: string, start: number, end: number, rev: string | null) =>

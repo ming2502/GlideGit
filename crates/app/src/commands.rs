@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
-    Blame, CommitDetails, CommitSummary, ConflictSide, ConflictTexts, DiffMode, FileDiff,
-    FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoSnapshot, ResetMode,
-    StashEntry, StashOptions,
+    Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide, ConflictTexts,
+    DiffMode, FileDiff, FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoSnapshot,
+    ResetMode, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -471,6 +471,28 @@ pub async fn reset(
 pub async fn abort_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     Ok(s.write(|r| r.abort_operation()).await?)
+}
+
+#[tauri::command]
+pub async fn compare_branches(
+    state: State<'_, AppState>,
+    root: String,
+    left: String,
+    right: String,
+) -> CmdResult<BranchCompare> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.compare(&left, &right, 1000)).await?)
+}
+
+#[tauri::command]
+pub async fn diff_files(
+    state: State<'_, AppState>,
+    root: String,
+    from: String,
+    to: String,
+) -> CmdResult<Vec<CommitFile>> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.diff_files(&from, &to)).await?)
 }
 
 #[tauri::command]

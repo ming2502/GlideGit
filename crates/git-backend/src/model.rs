@@ -259,6 +259,23 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// Two branches (or any two commits) side by side.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BranchCompare {
+    /// The two sides, resolved to commit ids.
+    pub left_oid: String,
+    pub right_oid: String,
+    /// Their merge base, if they share history.
+    pub merge_base: Option<String>,
+    /// Commits only on the left / right side, newest first (capped; see the counts).
+    pub only_left: Vec<CommitSummary>,
+    pub only_right: Vec<CommitSummary>,
+    pub only_left_count: u32,
+    pub only_right_count: u32,
+}
+
 /// One commit in a file's history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -193,6 +193,24 @@ export function BranchPopup() {
                   )}
                   {it.branch.upstreamGone && <span className="bp-track warn">gone</span>}
                   <span className="bp-upstream">{it.branch.upstream ?? ""}</span>
+                  {!it.branch.isHead && (
+                    <button
+                      className="bp-del bp-cmp"
+                      title="与当前分支比较"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        close();
+                        useRepo.getState().setCompare({
+                          left: it.branch.fullRef,
+                          right: "HEAD",
+                          leftName: it.branch.name,
+                          rightName: snapshot.head.branch ?? "HEAD",
+                        });
+                      }}
+                    >
+                      ⇄
+                    </button>
+                  )}
                   {!it.branch.isRemote && !it.branch.isHead && (
                     <button
                       className="bp-del"

@@ -130,6 +130,8 @@ fn main() {
             commands::rebase_plan,
             commands::blame,
             commands::file_history,
+            commands::compare_branches,
+            commands::diff_files,
             commands::line_history,
             commands::interactive_rebase,
             commands::delete_branch,
