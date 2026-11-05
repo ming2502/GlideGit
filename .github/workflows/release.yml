@@ -1,0 +1,126 @@
+name: Release
+
+# A tag `vX.Y.Z` builds the installers and puts them on a draft GitHub
+# release. Running the workflow by hand, or changing the packaging on main,
+# only builds them (as artifacts), to catch packaging breakage early.
+#
+# macOS: a universal (Apple silicon + Intel) app and DMG. Signing and
+# notarization turn on when the repository has the secrets listed in
+# docs/RELEASING.md; without them the app is ad-hoc signed, which runs on the
+# machine that downloads it only after the user allows it in System Settings.
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - crates/app/tauri.conf.json
+      - crates/app/entitlements.plist
+      - scripts/check-version.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+
+      # Secrets are only exported when they are set: an empty
+      # APPLE_CERTIFICATE would make the bundler fail instead of skipping.
+      - name: Configure signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "Signing with: $APPLE_SIGNING_IDENTITY"
+            {
+              echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            } >> "$GITHUB_ENV"
+            if [ -n "$APPLE_API_KEY_P8" ]; then
+              key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+              printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
+              {
+                echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+                echo "APPLE_API_KEY=$APPLE_API_KEY"
+                echo "APPLE_API_KEY_PATH=$key"
+                echo "NOTARIZE=1"
+              } >> "$GITHUB_ENV"
+              echo "Notarization: on"
+            else
+              echo "Notarization: off (no App Store Connect API key)"
+            fi
+          else
+            echo "No certificate configured: ad-hoc signing, no notarization"
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build universal app and DMG
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+
+      - name: Check the bundle
+        run: |
+          out=target/universal-apple-darwin/release/bundle
+          app="$out/macos/GlideGit.app"
+          lipo -archs "$app/Contents/MacOS/glidegit"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E "Authority|Signature|flags" || true
+          if [ "${NOTARIZE:-}" = 1 ]; then
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          fi
+
+      # The bundler notarizes and staples the app; the DMG around it is
+      # notarized here so it also opens without a warning when offline.
+      - name: Notarize the DMG
+        if: env.NOTARIZE == '1'
+        run: |
+          dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          xcrun notarytool submit "$dmg" --wait \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+          xcrun stapler staple "$dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlideGit-macos-universal
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing."
+          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber

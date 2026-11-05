@@ -34,6 +34,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "copyright": "Copyright © 2026 GlideGit contributors",
+    "shortDescription": "A fast, keyboard-driven Git client",
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
+      }
+    }
   }
 }

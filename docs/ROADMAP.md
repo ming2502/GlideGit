@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-05）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）已完成，下一步是 M4-2（macOS 签名与公证）。
+**当前进度（2026-11-05）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）、M4-2（macOS 通用二进制与签名、公证流程）已完成，下一步是 M4-3（Windows 安装包与代码签名）。
 
 ## 里程碑总览
 
@@ -205,7 +205,12 @@
   - 测试中发现并修复了一个死锁：一个短命令的 git 已经退出，但它的 stderr 管道被同时启动的另一个长时间运行的 git 继承，读取线程一直等不到结束；而那个长进程又在等我们读它的输出。修复：git 进程的创建改为全局串行（创建只需一两毫秒）；同时 git 退出后，最多再等 2 秒让输出管道关闭，不再无限期等待。有测试覆盖（用别名启动一个在后台持有管道的 `sleep`，修复前要等 20 秒）。
   - CI 结果写成 GitHub 注释（不登录也能在运行页面和 API 中看到；任务摘要和附件需要登录）。生成的仓库在单独的步骤中生成并立即缓存，避免基准失败时连同仓库一起丢掉。第一次通过的 CI 中（阈值为目标 × 1.5），各项在 GitHub 的 macOS / Windows 机器上分别为：冷启动 210 / 163 ms，有快照 27 / 33 ms，Log 首屏 147 / 95 ms，读一页 0.3 / 0.6 ms，分支列表 27 / 69 ms（随后减少为一个 git 进程；Windows 机器之间差异很大，另一次运行中各项都慢 2–3 倍，分支列表为 132 ms），提交 diff 33 / 38 ms，保存到面板 227 / 104 ms。
   - 参考数据（不设目标）：仓库没有 commit-graph 时（刚 clone、应用尚未写入之前），首屏要 7–11 秒，主要是 git 自身的耗时；应用在首次建完索引后会写入 commit-graph，之后都走快速路径。
-- [ ] M4-2 macOS 签名与公证、Universal 二进制
+- [x] M4-2 macOS 签名与公证、Universal 二进制
+  - 打包配置：通用二进制（Apple 芯片 + Intel，`--target universal-apple-darwin`），最低 macOS 11，启用 Hardened Runtime，权限声明 `crates/app/entitlements.plist` 为空（只运行系统 git 和自身作为 askpass 助手，经本地 socket 通信，不需要额外权限）。
+  - 发布工作流 `.github/workflows/release.yml`：推送 `vX.Y.Z` 标签时构建并上传到草稿 release；手动运行或修改打包配置时只构建。先用 `scripts/check-version.mjs` 确认 tauri.conf.json、Cargo 工作区和 package.json 的版本号与标签一致。
+  - 签名与公证按 secrets 自动开启：有 Developer ID 证书时签名，再有 App Store Connect API 密钥时公证并装订 `.app`，DMG 也单独公证、装订。没有配置时做临时签名（ad-hoc），流程照样能跑通。构建后检查架构（`lipo`）、签名（`codesign --verify --deep --strict`），公证后再用 `spctl` 和 `stapler validate` 确认。配置方法写在 `docs/RELEASING.md`。
+  - 本机验证（临时签名）：`.app` 39 MiB、DMG 13 MiB，包含 `x86_64 arm64`，签名校验通过且带 runtime 标志；在 Hardened Runtime 下应用能正常启动，作为 askpass 助手运行时能把提示转发给应用并输出答案。
+  - 待办（需要账号）：实际的 Developer ID 签名和公证要等仓库配置了 Apple 证书和 API 密钥后才能验证。
 - [ ] M4-3 Windows NSIS/MSI 安装包与代码签名，附带 MinGit 作为后备
 - [ ] M4-4 Tauri updater 自动更新
 - [ ] M4-5 设置页：git 路径、键位预设、主题、语言

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened runtime entitlements (needed for notarization). GlideGit runs the
+  system git and its own executable (as the askpass helper) and talks to them
+  over a local socket; none of that needs an exception. WKWebView compiles
+  JavaScript in its own process, so no JIT entitlement either. Kept as an
+  explicit, empty list so additions are deliberate.
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

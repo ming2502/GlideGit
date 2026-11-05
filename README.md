@@ -4,6 +4,7 @@
 
 - 设计文档：[docs/DESIGN.md](docs/DESIGN.md)
 - 工作计划：[docs/ROADMAP.md](docs/ROADMAP.md)
+- 发布与签名：[docs/RELEASING.md](docs/RELEASING.md)
 
 ## 技术栈
 
