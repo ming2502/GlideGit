@@ -64,6 +64,7 @@ export function DiffView() {
       label="HEAD ↔ 工作区"
       staging={staging}
       onAnnotate={annotatable ? () => useRepo.getState().setAnnotate({ path: selectedPath, rev: null }) : undefined}
+      onHistory={diff?.old != null ? () => useRepo.getState().setHistory({ path: selectedPath }) : undefined}
     />
   );
 }
@@ -78,6 +79,7 @@ export function TextsDiff({
   label,
   staging,
   onAnnotate,
+  onHistory,
 }: {
   path: string;
   texts: FileTexts | null;
@@ -88,6 +90,8 @@ export function TextsDiff({
   staging?: Staging;
   /** Open the file in the annotate view. */
   onAnnotate?: () => void;
+  /** Open the file's history. */
+  onHistory?: () => void;
 }) {
   const [layout, setLayout] = useState<DiffLayout>(() => load<DiffLayout>("diffLayout", "split"));
   useEffect(() => save("diffLayout", layout), [layout]);
@@ -161,6 +165,11 @@ export function TextsDiff({
             统一
           </button>
         </span>
+        {onHistory && (
+          <button className="btn btn-sm" onClick={onHistory} title="这个文件的所有修改记录（跟随重命名）">
+            历史
+          </button>
+        )}
         {onAnnotate && (
           <button className="btn btn-sm" onClick={onAnnotate} title="显示每一行最后由谁、在哪个提交中修改">
             注释

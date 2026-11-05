@@ -329,6 +329,65 @@ input {
   display: flex;
   flex-direction: column;
 }
+/* --------------------------------------------------------------- history */
+.hv-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.hv-list {
+  width: 380px;
+  flex: none;
+  overflow: auto;
+  border-right: 1px solid var(--border-strong);
+  background: var(--panel);
+  outline: none;
+}
+.hv-row {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hv-row:hover:not(.selected) {
+  background: var(--hover);
+}
+.hv-row.selected {
+  background: var(--selection-inactive);
+}
+.hv-list:focus .hv-row.selected {
+  background: var(--selection);
+}
+.hv-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.hv-kind {
+  color: var(--k-modified);
+}
+.hv-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--k-renamed);
+}
+.hv-more {
+  margin: 8px 12px;
+}
+.hv-diff {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
 /* -------------------------------------------------------------- annotate */
 .annotate-editor .cm-blame .cm-gutterElement {
   padding: 0;

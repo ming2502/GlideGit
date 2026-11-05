@@ -1350,3 +1350,59 @@ fn blame_worktree_and_revisions() {
     assert!(repo.blame("a.txt", Some("--all")).is_err());
     assert!(repo.blame("../x", None).is_err());
 }
+
+#[test]
+fn file_and_line_history() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    let body =
+        |head: &str, mid: &str| format!("{head}\nkeep 1\nkeep 2\nkeep 3\n{mid}\nkeep 4\nkeep 5\n");
+    write(root, "old.txt", &body("h1", "m1"));
+    repo.stage_all().unwrap();
+    repo.commit("add", false).unwrap();
+    write(root, "old.txt", &body("h2", "m1"));
+    repo.stage_all().unwrap();
+    repo.commit("edit head", false).unwrap();
+    fs::rename(root.join("old.txt"), root.join("new.txt")).unwrap();
+    repo.stage_all().unwrap();
+    repo.commit("rename", false).unwrap();
+    write(root, "new.txt", &body("h2", "m2"));
+    repo.stage_all().unwrap();
+    let last = repo.commit("edit middle", false).unwrap();
+    write(root, "other.txt", "x\n");
+    repo.stage_all().unwrap();
+    repo.commit("unrelated", false).unwrap();
+
+    let h = repo.file_history("new.txt", 0, 100).unwrap();
+    let got: Vec<_> = h
+        .iter()
+        .map(|r| (r.commit.subject.as_str(), r.path.as_str(), r.kind))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("edit middle", "new.txt", Some(ChangeKind::Modified)),
+            ("rename", "new.txt", Some(ChangeKind::Renamed)),
+            ("edit head", "old.txt", Some(ChangeKind::Modified)),
+            ("add", "old.txt", Some(ChangeKind::Added)),
+        ]
+    );
+    assert_eq!(h[1].orig_path.as_deref(), Some("old.txt"));
+    assert_eq!(h[0].commit.oid, last);
+    // Paging.
+    let page = repo.file_history("new.txt", 1, 2).unwrap();
+    assert_eq!(page.len(), 2);
+    assert_eq!(page[0].commit.subject, "rename");
+
+    // Line 1 changed in "edit head" and "add"; line 5 in "edit middle" and "add".
+    let subjects = |v: Vec<CommitSummary>| v.into_iter().map(|c| c.subject).collect::<Vec<_>>();
+    assert_eq!(
+        subjects(repo.line_history("new.txt", 1, 1, None).unwrap()),
+        ["edit head", "add"]
+    );
+    assert_eq!(
+        subjects(repo.line_history("new.txt", 5, 5, None).unwrap()),
+        ["edit middle", "add"]
+    );
+    assert!(repo.line_history("new.txt", 3, 2, None).is_err());
+}

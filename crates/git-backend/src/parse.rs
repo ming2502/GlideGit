@@ -270,6 +270,73 @@ pub fn parse_log(text: &str) -> Vec<CommitSummary> {
         .collect()
 }
 
+/// Commit header for file / line history: a record separator first, so
+/// patches or name-status lines that follow can be told apart.
+pub const HISTORY_FORMAT: &str = "--format=%x1e%H%x00%P%x00%an%x00%ae%x00%at%x00%s%x00%D";
+
+fn history_commit(fields: &str) -> Option<CommitSummary> {
+    let f: Vec<&str> = fields.split('\0').collect();
+    if f.len() < 7 {
+        return None;
+    }
+    Some(CommitSummary {
+        oid: f[0].to_string(),
+        parents: f[1].split_whitespace().map(str::to_string).collect(),
+        author_name: f[2].to_string(),
+        author_email: f[3].to_string(),
+        author_time: f[4].parse().unwrap_or(0),
+        subject: f[5].to_string(),
+        refs: f[6]
+            .split(", ")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect(),
+    })
+}
+
+/// Parse `git log --follow --name-status` in [`HISTORY_FORMAT`].
+/// `path` is the current name, used when a record has no name-status line.
+pub fn parse_file_history(text: &str, path: &str) -> Vec<FileRevision> {
+    let mut out = Vec::new();
+    let mut next_path = path.to_string();
+    for rec in text.split('\x1e').filter(|r| !r.trim().is_empty()) {
+        let mut lines = rec.lines();
+        let Some(commit) = lines.next().and_then(history_commit) else {
+            continue;
+        };
+        let mut rev = FileRevision {
+            commit,
+            path: next_path.clone(),
+            orig_path: None,
+            kind: None,
+        };
+        for l in lines.filter(|l| !l.is_empty()) {
+            let parts: Vec<&str> = l.split('\t').collect();
+            let code = parts[0].chars().next().unwrap_or('M');
+            match (code, parts.len()) {
+                ('R' | 'C', 3) => {
+                    rev.orig_path = Some(parts[1].to_string());
+                    rev.path = parts[2].to_string();
+                }
+                (_, 2) => rev.path = parts[1].to_string(),
+                _ => continue,
+            }
+            rev.kind = change_kind(code);
+        }
+        // Older commits see the file under its name before a rename.
+        next_path = rev.orig_path.clone().unwrap_or_else(|| rev.path.clone());
+        out.push(rev);
+    }
+    out
+}
+
+/// Commits of a `git log -L` run, ignoring the patches in between.
+pub fn parse_line_history(text: &str) -> Vec<CommitSummary> {
+    text.split('\x1e')
+        .filter_map(|rec| rec.lines().next().and_then(history_commit))
+        .collect()
+}
+
 /// Parse `git blame --porcelain`. Each line comes as a header
 /// (`<oid> <orig> <final> [<count>]`), commit details the first time a
 /// commit appears, and the line itself prefixed with a tab.
@@ -649,6 +716,33 @@ mod tests {
         assert_eq!(f[2].orig_path.as_deref(), Some("old/name.rs"));
         assert_eq!((f[2].kind, f[2].added), (ChangeKind::Renamed, Some(2)));
         assert_eq!((f[3].added, f[3].deleted), (None, None));
+    }
+
+    #[test]
+    fn file_history_with_rename() {
+        let rec = |oid: &str, s: &str| format!("\x1e{oid}\x00p\x00A\x00a@x\x00100\x00{s}\x00\n\n");
+        let text = format!(
+            "{}M\tsrc/new.rs\n{}R095\tsrc/old.rs\tsrc/new.rs\n{}M\tsrc/old.rs\n{}A\tsrc/old.rs\n",
+            rec("d", "edit"),
+            rec("c", "rename"),
+            rec("b", "edit old"),
+            rec("a", "add")
+        );
+        let h = parse_file_history(&text, "src/new.rs");
+        let got: Vec<_> = h
+            .iter()
+            .map(|r| (r.commit.subject.as_str(), r.path.as_str(), r.kind))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("edit", "src/new.rs", Some(ChangeKind::Modified)),
+                ("rename", "src/new.rs", Some(ChangeKind::Renamed)),
+                ("edit old", "src/old.rs", Some(ChangeKind::Modified)),
+                ("add", "src/old.rs", Some(ChangeKind::Added)),
+            ]
+        );
+        assert_eq!(h[1].orig_path.as_deref(), Some("src/old.rs"));
     }
 
     #[test]

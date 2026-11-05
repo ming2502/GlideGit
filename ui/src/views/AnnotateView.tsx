@@ -54,6 +54,9 @@ export function AnnotateView() {
   const [blame, setBlame] = useState<Blame | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; commit: BlameCommit } | null>(null);
+  // Selected lines (1-based, inclusive), for "history of the selection".
+  const [lines, setLines] = useState<[number, number] | null>(null);
+  const openHistory = useRepo((s) => s.setHistory);
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -159,6 +162,13 @@ export function AnnotateView() {
           editorLook,
           lang.of([]),
           hover,
+          EditorView.updateListener.of((u) => {
+            if (!u.selectionSet) return;
+            const r = u.state.selection.main;
+            const a = u.state.doc.lineAt(r.from).number;
+            const b = u.state.doc.lineAt(r.to).number;
+            setLines(r.empty ? null : [a, b]);
+          }),
         ],
       }),
     });
@@ -201,6 +211,21 @@ export function AnnotateView() {
             {blame && ` · ${blame.lines.length} 行，${blame.commits.length} 个提交，${authors} 位作者`}
           </span>
           <span className="spacer" />
+          <button
+            className="btn btn-sm"
+            disabled={!lines}
+            onClick={() => lines && openHistory({ path: target.path, range: lines, rev: target.rev })}
+            title={
+              lines
+                ? `修改过第 ${lines[0]}–${lines[1]} 行的提交${target.rev ? "" : "（按 HEAD 版本的行号计算）"}`
+                : "先在文件中选中几行"
+            }
+          >
+            选区历史{lines ? `（${lines[0]}–${lines[1]}）` : ""}
+          </button>
+          <button className="btn btn-sm" onClick={() => openHistory({ path: target.path })}>
+            文件历史
+          </button>
           <button className="btn btn-sm" onClick={close} autoFocus>
             关闭
           </button>

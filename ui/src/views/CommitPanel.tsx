@@ -216,6 +216,11 @@ export function CommitPanel() {
       { label: "Rollback…", shortcut: shortcutOf("changes.rollback"), danger: true, onClick: () => void rollback([c]) },
       "separator",
       {
+        label: "显示历史",
+        disabled: c.unstaged === "untracked",
+        onClick: () => useRepo.getState().setHistory({ path: c.path }),
+      },
+      {
         label: "注释（Annotate）",
         disabled: c.unstaged === "untracked" || c.unstaged === "deleted",
         onClick: () => useRepo.getState().setAnnotate({ path: c.path, rev: null }),

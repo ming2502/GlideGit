@@ -129,6 +129,8 @@ fn main() {
             commands::skip_operation,
             commands::rebase_plan,
             commands::blame,
+            commands::file_history,
+            commands::line_history,
             commands::interactive_rebase,
             commands::delete_branch,
             commands::fetch,

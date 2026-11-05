@@ -574,6 +574,54 @@ impl Repo {
         Ok(self.operation().is_none())
     }
 
+    /// Commits that changed `path`, newest first, following renames.
+    /// `skip` / `limit` page through long histories.
+    pub fn file_history(&self, path: &str, skip: u32, limit: u32) -> Result<Vec<FileRevision>> {
+        self.resolve(path)?;
+        // No --skip / --max-count: with --follow git counts commits that do
+        // not touch the file too, so page here instead.
+        let text = self.read(&[
+            "log",
+            "--follow",
+            "-M",
+            "--name-status",
+            parse::HISTORY_FORMAT,
+            "--decorate=short",
+            "--",
+            path,
+        ])?;
+        Ok(parse::parse_file_history(&text, path)
+            .into_iter()
+            .skip(skip as usize)
+            .take(limit as usize)
+            .collect())
+    }
+
+    /// Commits that changed lines `start..=end` (1-based) of `path` as it is
+    /// at `rev` (default HEAD), newest first (`git log -L`).
+    pub fn line_history(
+        &self,
+        path: &str,
+        start: u32,
+        end: u32,
+        rev: Option<&str>,
+    ) -> Result<Vec<CommitSummary>> {
+        self.resolve(path)?;
+        if start == 0 || end < start {
+            return Err(GitError::Invalid(format!(
+                "invalid line range {start}-{end}"
+            )));
+        }
+        // The path travels inside the `-L` argument, so it is never an option.
+        let range = format!("-L{start},{end}:{path}");
+        let mut args = vec!["log", parse::HISTORY_FORMAT, "--decorate=short", &range];
+        if let Some(r) = rev {
+            check_oid(r)?;
+            args.push(r);
+        }
+        Ok(parse::parse_line_history(&self.read(&args)?))
+    }
+
     /// Who last changed each line of `path`: in the working copy (`rev`
     /// `None`; uncommitted lines get an all-zero id) or at a commit.
     pub fn blame(&self, path: &str, rev: Option<&str>) -> Result<Blame> {

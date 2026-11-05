@@ -259,6 +259,20 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// One commit in a file's history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileRevision {
+    pub commit: CommitSummary,
+    /// The file's path in this commit (it may have been renamed since).
+    pub path: String,
+    /// Its path before this commit, when this commit renamed it.
+    pub orig_path: Option<String>,
+    /// What this commit did to the file (`None` for merges).
+    pub kind: Option<ChangeKind>,
+}
+
 /// A commit that last touched some lines of an annotated file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

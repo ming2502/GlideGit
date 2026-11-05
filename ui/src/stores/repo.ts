@@ -74,6 +74,8 @@ interface RepoState {
   annotate: { path: string; rev: string | null } | null;
   /** A commit the Log should select next time it shows (set by jumps from elsewhere). */
   logJump: string | null;
+  /** History view: a file's history, or of lines `range` (1-based, inclusive) at `rev`. */
+  history: { path: string; range?: [number, number]; rev?: string | null } | null;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -103,6 +105,7 @@ interface RepoState {
   setMergePath: (path: string | null) => void;
   setRebaseFrom: (commit: CommitSummary | null) => void;
   setAnnotate: (a: { path: string; rev: string | null } | null) => void;
+  setHistory: (h: { path: string; range?: [number, number]; rev?: string | null } | null) => void;
   /** Switch to the Log and select this commit. */
   showInLog: (oid: string) => void;
   clearLogJump: () => void;
@@ -151,6 +154,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   rebaseFrom: null,
   annotate: null,
   logJump: null,
+  history: null,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -342,7 +346,8 @@ export const useRepo = create<RepoState>((set, get) => ({
   setMergePath: (mergePath) => set({ mergePath }),
   setRebaseFrom: (rebaseFrom) => set({ rebaseFrom }),
   setAnnotate: (annotate) => set({ annotate }),
-  showInLog: (oid) => set({ view: "log", logJump: oid, annotate: null }),
+  setHistory: (history) => set({ history }),
+  showInLog: (oid) => set({ view: "log", logJump: oid, annotate: null, history: null }),
   clearLogJump: () => set({ logJump: null }),
 
   toast(t) {

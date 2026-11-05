@@ -241,6 +241,7 @@ export function CommitDetailsPane({
       <div className="cd-right">
         {file ? (
           <TextsDiff
+            onHistory={file.kind !== "deleted" && file.kind !== "untracked" ? () => useRepo.getState().setHistory({ path: file.path }) : undefined}
             onAnnotate={
               file.kind !== "deleted" && file.kind !== "untracked" && file.added != null
                 ? () => useRepo.getState().setAnnotate({ path: file.path, rev: current.oid })

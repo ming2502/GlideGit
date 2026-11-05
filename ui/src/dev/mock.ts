@@ -513,6 +513,22 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "file_history": {
+        const path = a.path as string;
+        const all = Array.from({ length: 23 }, (_, k) => {
+          const c = mockCommit(30 + k * 17);
+          const renamed = k === 15;
+          return {
+            commit: c,
+            path: k > 15 ? path.replace(/([^/]+)$/, "old_$1") : path,
+            origPath: renamed ? path.replace(/([^/]+)$/, "old_$1") : null,
+            kind: k === 22 ? "added" : renamed ? "renamed" : "modified",
+          };
+        });
+        return sleep(120).then(() => all.slice(a.skip as number, (a.skip as number) + (a.limit as number)));
+      }
+      case "line_history":
+        return sleep(120).then(() => [0, 4, 9, 22].map((k) => mockCommit(30 + k * 17)));
       case "blame": {
         const text = rustSample();
         const n = text.split("\n").length;
