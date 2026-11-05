@@ -215,6 +215,11 @@ export function CommitPanel() {
       { label: inc === true ? "从提交中排除 (Unstage)" : "加入提交 (Stage)", onClick: () => toggle([c]) },
       { label: "Rollback…", shortcut: shortcutOf("changes.rollback"), danger: true, onClick: () => void rollback([c]) },
       "separator",
+      {
+        label: "注释（Annotate）",
+        disabled: c.unstaged === "untracked" || c.unstaged === "deleted",
+        onClick: () => useRepo.getState().setAnnotate({ path: c.path, rev: null }),
+      },
       { label: "复制路径", onClick: () => void navigator.clipboard.writeText(c.path) },
     ];
   }

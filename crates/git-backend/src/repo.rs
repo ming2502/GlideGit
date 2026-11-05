@@ -574,6 +574,20 @@ impl Repo {
         Ok(self.operation().is_none())
     }
 
+    /// Who last changed each line of `path`: in the working copy (`rev`
+    /// `None`; uncommitted lines get an all-zero id) or at a commit.
+    pub fn blame(&self, path: &str, rev: Option<&str>) -> Result<Blame> {
+        self.resolve(path)?;
+        let mut args = vec!["blame", "--porcelain"];
+        if let Some(r) = rev {
+            check_oid(r)?;
+            args.push(r);
+        }
+        args.extend(["--", path]);
+        let out = self.cli.run(&self.root, &args, RunOptions::read())?;
+        Ok(parse::parse_blame(&out.stdout, path))
+    }
+
     /// Skip the commit the rebase / cherry-pick / revert stopped at.
     pub fn skip_operation(&self) -> Result<()> {
         let cmd = match self.operation() {

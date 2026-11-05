@@ -329,6 +329,31 @@ input {
   display: flex;
   flex-direction: column;
 }
+/* -------------------------------------------------------------- annotate */
+.annotate-editor .cm-blame .cm-gutterElement {
+  padding: 0;
+}
+.blame-cell {
+  width: 210px;
+  height: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--heat);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+}
+.blame-cell:hover {
+  text-decoration: underline;
+}
+.annotate-editor .blame-hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 /* ------------------------------------------------------ interactive rebase */
 .dialog.rb-dialog {
   width: min(1100px, calc(100vw - 48px));

@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use glide_core::{AuthorCount, CoreError, LogFilter, LogPage, LogStatus, RepoSession};
 use glide_git_backend::{
-    CommitDetails, CommitSummary, ConflictSide, ConflictTexts, DiffMode, FileDiff, FileTexts,
-    PullMode, PushPreview, RebaseStep, RepoSnapshot, ResetMode, StashEntry, StashOptions,
+    Blame, CommitDetails, CommitSummary, ConflictSide, ConflictTexts, DiffMode, FileDiff,
+    FileTexts, PullMode, PushPreview, RebaseStep, RepoSnapshot, ResetMode, StashEntry,
+    StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -470,6 +471,17 @@ pub async fn reset(
 pub async fn abort_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     Ok(s.write(|r| r.abort_operation()).await?)
+}
+
+#[tauri::command]
+pub async fn blame(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    rev: Option<String>,
+) -> CmdResult<Blame> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(move |r| r.blame(&path, rev.as_deref())).await?)
 }
 
 #[tauri::command]

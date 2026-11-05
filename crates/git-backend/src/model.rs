@@ -259,6 +259,36 @@ pub struct StashOptions {
     pub paths: Vec<String>,
 }
 
+/// A commit that last touched some lines of an annotated file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BlameCommit {
+    /// All zeros for lines not committed yet.
+    pub oid: String,
+    pub author_name: String,
+    pub author_email: String,
+    pub author_time: i64,
+    pub summary: String,
+    /// The file as it was before this commit (for "annotate previous
+    /// revision"): parent commit and path there.
+    pub previous_oid: Option<String>,
+    pub previous_path: Option<String>,
+}
+
+/// `git blame` of a file: its text and, per line, who last changed it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Blame {
+    pub path: String,
+    /// The annotated content (working copy or the given revision).
+    pub text: String,
+    /// For each line, an index into `commits`.
+    pub lines: Vec<u32>,
+    pub commits: Vec<BlameCommit>,
+}
+
 /// What to do with a commit in an interactive rebase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

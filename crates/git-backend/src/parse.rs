@@ -270,6 +270,63 @@ pub fn parse_log(text: &str) -> Vec<CommitSummary> {
         .collect()
 }
 
+/// Parse `git blame --porcelain`. Each line comes as a header
+/// (`<oid> <orig> <final> [<count>]`), commit details the first time a
+/// commit appears, and the line itself prefixed with a tab.
+pub fn parse_blame(out: &[u8], path: &str) -> Blame {
+    let text = String::from_utf8_lossy(out);
+    let mut blame = Blame {
+        path: path.to_string(),
+        ..Blame::default()
+    };
+    let mut index: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut current: Option<u32> = None;
+    let mut content = String::new();
+    for line in text.split_inclusive('\n') {
+        if let Some(code) = line.strip_prefix('\t') {
+            if let Some(c) = current {
+                blame.lines.push(c);
+                content.push_str(code);
+            }
+            continue;
+        }
+        let line = line.trim_end_matches('\n');
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        let is_header = key.len() >= 40 && key.bytes().all(|b| b.is_ascii_hexdigit());
+        if is_header {
+            let id = *index.entry(key.to_string()).or_insert_with(|| {
+                blame.commits.push(BlameCommit {
+                    oid: key.to_string(),
+                    ..BlameCommit::default()
+                });
+                (blame.commits.len() - 1) as u32
+            });
+            current = Some(id);
+            continue;
+        }
+        let Some(c) = current.and_then(|i| blame.commits.get_mut(i as usize)) else {
+            continue;
+        };
+        match key {
+            "author" => c.author_name = value.to_string(),
+            "author-mail" => {
+                c.author_email = value.trim_matches(|ch| ch == '<' || ch == '>').to_string()
+            }
+            "author-time" => c.author_time = value.parse().unwrap_or(0),
+            "summary" => c.summary = value.to_string(),
+            "previous" => {
+                if let Some((oid, prev)) = value.split_once(' ') {
+                    c.previous_oid = Some(oid.to_string());
+                    c.previous_path = Some(prev.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    blame.text = content;
+    blame
+}
+
 pub const STASH_FORMAT: &str = "--format=%gd%x00%H%x00%gs%x00%ct%x1e";
 
 /// Parse `git stash list` in [`STASH_FORMAT`].
@@ -592,6 +649,31 @@ mod tests {
         assert_eq!(f[2].orig_path.as_deref(), Some("old/name.rs"));
         assert_eq!((f[2].kind, f[2].added), (ChangeKind::Renamed, Some(2)));
         assert_eq!((f[3].added, f[3].deleted), (None, None));
+    }
+
+    #[test]
+    fn blame_porcelain() {
+        let a = "a".repeat(40);
+        let z = "0".repeat(40);
+        let out = format!(
+            "{a} 1 1 2\nauthor Ann\nauthor-mail <ann@x>\nauthor-time 100\nauthor-tz +0000\nsummary First\nprevious {b} old.rs\nfilename new.rs\n\tfn main() {{\n{a} 2 2\n\t}}\n{z} 3 3 1\nauthor Not Committed Yet\nauthor-mail <not.committed.yet>\nauthor-time 200\nsummary Version of new.rs from new.rs\nfilename new.rs\n\t// todo",
+            b = "b".repeat(40)
+        );
+        let b = parse_blame(out.as_bytes(), "new.rs");
+        assert_eq!(b.text, "fn main() {\n}\n// todo");
+        assert_eq!(b.lines, vec![0, 0, 1]);
+        assert_eq!(b.commits.len(), 2);
+        let c = &b.commits[0];
+        assert_eq!(
+            (
+                c.author_name.as_str(),
+                c.author_email.as_str(),
+                c.author_time
+            ),
+            ("Ann", "ann@x", 100)
+        );
+        assert_eq!(c.previous_path.as_deref(), Some("old.rs"));
+        assert_eq!(b.commits[1].oid, z);
     }
 
     #[test]

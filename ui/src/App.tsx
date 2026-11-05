@@ -13,6 +13,7 @@ import { StashDialog, StashView } from "./views/StashView";
 import { RebaseDialog } from "./views/RebaseDialog";
 
 // The merge tool brings CodeMirror; load it when first needed.
+const AnnotateView = lazy(() => import("./views/AnnotateView").then((m) => ({ default: m.AnnotateView })));
 const MergeTool = lazy(() => import("./views/MergeTool").then((m) => ({ default: m.MergeTool })));
 import { AskpassDialog } from "./views/AskpassDialog";
 import { OperationBanner } from "./views/OperationBanner";
@@ -24,6 +25,7 @@ export function App() {
   const root = useRepo((s) => s.root);
   const view = useRepo((s) => s.view);
   const mergePath = useRepo((s) => s.mergePath);
+  const annotate = useRepo((s) => s.annotate);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [restored, setRestored] = useState(false);
 
@@ -148,6 +150,11 @@ export function App() {
       <PushDialog />
       <StashDialog />
       <RebaseDialog />
+      {annotate && (
+        <Suspense fallback={null}>
+          <AnnotateView />
+        </Suspense>
+      )}
       {mergePath && (
         <Suspense fallback={null}>
           <MergeTool />

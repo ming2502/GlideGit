@@ -5,6 +5,7 @@ import type { AskRequest } from "./bindings/AskRequest";
 import type { DiffMode } from "./bindings/DiffMode";
 import type { FileTexts } from "./bindings/FileTexts";
 import type { AuthorCount } from "./bindings/AuthorCount";
+import type { Blame } from "./bindings/Blame";
 import type { CommitDetails } from "./bindings/CommitDetails";
 import type { CommitSummary } from "./bindings/CommitSummary";
 import type { ConflictSide } from "./bindings/ConflictSide";
@@ -92,6 +93,7 @@ export const api = {
   abortOperation: (root: string) => invoke<void>("abort_operation", { root }),
   continueOperation: (root: string) => invoke<void>("continue_operation", { root }),
   skipOperation: (root: string) => invoke<void>("skip_operation", { root }),
+  blame: (root: string, path: string, rev: string | null) => invoke<Blame>("blame", { root, path, rev }),
   rebasePlan: (root: string, oid: string) => invoke<CommitSummary[]>("rebase_plan", { root, oid }),
   interactiveRebase: (root: string, from: string, steps: RebaseStep[], autostash: boolean) =>
     invoke<boolean>("interactive_rebase", { root, from, steps, autostash }),

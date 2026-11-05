@@ -443,8 +443,19 @@ impl LogIndex {
     /// Row number of a commit (full hex id) in the full Log, if indexed.
     pub fn row_of(&self, oid: &str) -> Result<Option<u32>> {
         let st = self.read_state();
-        let pos = self.pos_of(oid)?;
-        Ok(pos.and_then(|p| st.order.binary_search(&p).ok().map(|i| i as u32)))
+        let Some(pos) = self.pos_of(oid)? else {
+            return Ok(None);
+        };
+        if !st.loaded && st.early.is_some() {
+            // Not loaded yet: the row is the number of keys before it.
+            let n: i64 = lock(&self.reader).query_row(
+                "SELECT COUNT(*) FROM commits WHERE pos < ?1",
+                [pos],
+                |r| r.get(0),
+            )?;
+            return Ok(Some(n as u32));
+        }
+        Ok(st.order.binary_search(&pos).ok().map(|i| i as u32))
     }
 
     /// Row number of a commit in the Log filtered by `filter`.

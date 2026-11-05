@@ -70,6 +70,10 @@ interface RepoState {
   mergePath: string | null;
   /** Commit the interactive rebase dialog starts from. */
   rebaseFrom: CommitSummary | null;
+  /** File open in the annotate view: at a commit, or the working copy (rev null). */
+  annotate: { path: string; rev: string | null } | null;
+  /** A commit the Log should select next time it shows (set by jumps from elsewhere). */
+  logJump: string | null;
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
@@ -98,6 +102,10 @@ interface RepoState {
   setStashDialog: (open: boolean) => void;
   setMergePath: (path: string | null) => void;
   setRebaseFrom: (commit: CommitSummary | null) => void;
+  setAnnotate: (a: { path: string; rev: string | null } | null) => void;
+  /** Switch to the Log and select this commit. */
+  showInLog: (oid: string) => void;
+  clearLogJump: () => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
@@ -141,6 +149,8 @@ export const useRepo = create<RepoState>((set, get) => ({
   stashDialog: false,
   mergePath: null,
   rebaseFrom: null,
+  annotate: null,
+  logJump: null,
   pullMode: load<PullMode>("pullMode", "merge"),
 
   async openRepo(path) {
@@ -331,6 +341,9 @@ export const useRepo = create<RepoState>((set, get) => ({
   setStashDialog: (stashDialog) => set({ stashDialog }),
   setMergePath: (mergePath) => set({ mergePath }),
   setRebaseFrom: (rebaseFrom) => set({ rebaseFrom }),
+  setAnnotate: (annotate) => set({ annotate }),
+  showInLog: (oid) => set({ view: "log", logJump: oid, annotate: null }),
+  clearLogJump: () => set({ logJump: null }),
 
   toast(t) {
     const id = ++seq;

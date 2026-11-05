@@ -2,6 +2,7 @@
 // browser), IPC is served from this in-memory fake repository. Dev-only.
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import type { BlameCommit } from "../bindings/BlameCommit";
 import type { Branch } from "../bindings/Branch";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileChange } from "../bindings/FileChange";
@@ -512,6 +513,29 @@ export function installMock(): void {
           publish();
           return null;
         });
+      case "blame": {
+        const text = rustSample();
+        const n = text.split("\n").length;
+        const people = [
+          ["Min", 2 * 3600, "Add RepoSession with serialised writes"],
+          ["Alex Chen", 5 * 86400, "Parse git status porcelain v2"],
+          ["Sam", 40 * 86400, "Initial commit"],
+          ["Priya Natarajan", 200 * 86400, "Branch popup: keyboard navigation"],
+        ] as const;
+        const commits: BlameCommit[] = people.map(([name, age, summary], k) => ({
+          oid: mockOid(500 + k),
+          authorName: name,
+          authorEmail: `${name.split(" ")[0].toLowerCase()}@example.com`,
+          authorTime: now - age,
+          summary,
+          previousOid: k < 3 ? mockOid(501 + k) : null,
+          previousPath: k < 3 ? (a.path as string) : null,
+        }));
+        commits.push({ oid: "0".repeat(40), authorName: "Not Committed Yet", authorEmail: "", authorTime: now, summary: "", previousOid: null, previousPath: null });
+        // Runs of a few lines each, newest edits scattered through older code.
+        const lines = Array.from({ length: n }, (_, i) => (i > 40 && i < 44 ? 4 : Math.floor(i / 7) % 9 === 0 ? 0 : (Math.floor(i / 5) % 3) + 1));
+        return sleep(150).then(() => ({ path: a.path, text, lines, commits }));
+      }
       case "rebase_plan": {
         const i = parseInt(String(a.oid).slice(8), 16) || 0;
         if (i > 12) throw { kind: "invalid", message: "the range contains merge commits; interactive rebase would flatten them" };

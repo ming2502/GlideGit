@@ -1310,3 +1310,43 @@ fn rebase_plan_refuses_merges_and_foreign_commits() {
         .unwrap();
     assert!(repo.rebase_plan(&base).is_err(), "merge in range");
 }
+
+#[test]
+fn blame_worktree_and_revisions() {
+    let (dir, repo) = new_repo();
+    let root = dir.path();
+    // Long enough that the rename below is detected (>50% similar).
+    let tail = "keep 1\nkeep 2\nkeep 3\nkeep 4\nkeep 5\n";
+    write(root, "old.txt", &format!("one\ntwo\n{tail}"));
+    repo.stage_all().unwrap();
+    let c1 = repo.commit("first", false).unwrap();
+    fs::rename(root.join("old.txt"), root.join("a.txt")).unwrap();
+    write(root, "a.txt", &format!("one\nTWO\nthree\n{tail}"));
+    repo.stage_all().unwrap();
+    let c2 = repo.commit("second", false).unwrap();
+    write(root, "a.txt", &format!("one\nTWO\nthree\n{tail}local\n"));
+
+    let b = repo.blame("a.txt", None).unwrap();
+    assert_eq!(b.text, format!("one\nTWO\nthree\n{tail}local\n"));
+    let who: Vec<&str> = b
+        .lines
+        .iter()
+        .map(|&i| b.commits[i as usize].oid.as_str())
+        .collect();
+    assert_eq!(who[0], c1, "kept across the rename");
+    assert_eq!((who[1], who[2]), (c2.as_str(), c2.as_str()));
+    assert_eq!(who[3], c1);
+    assert!(who[8].bytes().all(|x| x == b'0'), "uncommitted");
+    let second = b.commits.iter().find(|c| c.oid == c2).unwrap();
+    assert_eq!(second.summary, "second");
+    assert_eq!(second.author_name, "Test");
+    assert_eq!(second.previous_oid.as_deref(), Some(c1.as_str()));
+    assert_eq!(second.previous_path.as_deref(), Some("old.txt"));
+
+    // At a commit: the file as it was then.
+    let b = repo.blame("old.txt", Some(&c1)).unwrap();
+    assert_eq!(b.text, format!("one\ntwo\n{tail}"));
+    assert_eq!(b.commits.len(), 1);
+    assert!(repo.blame("a.txt", Some("--all")).is_err());
+    assert!(repo.blame("../x", None).is_err());
+}

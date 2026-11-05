@@ -294,6 +294,33 @@ export function LogView() {
 
   const indexing = status != null && !status.complete;
 
+  // Jumps from elsewhere (annotate view, …): select that commit, unfiltered.
+  const logJump = useRepo((s) => s.logJump);
+  useEffect(() => {
+    if (!logJump || !status) return;
+    if (filtered) {
+      setFilter(EMPTY_FILTER);
+      return; // runs again once the filter is cleared
+    }
+    let alive = true;
+    api
+      .logRowOf(root, logJump, null)
+      .then((r) => {
+        if (!alive) return;
+        useRepo.getState().clearLogJump();
+        if (r == null) {
+          useRepo.getState().toast({ kind: "info", title: "Log 中找不到这个提交", detail: logJump.slice(0, 8) });
+          return;
+        }
+        setSelected(r);
+        selectedOid.current = logJump;
+      })
+      .catch(() => useRepo.getState().clearLogJump());
+    return () => {
+      alive = false;
+    };
+  }, [logJump, status, filtered, root]);
+
   // Jump to a commit (e.g. a parent link); it may be hidden by the filter.
   const jumpTo = (oid: string) => {
     void api

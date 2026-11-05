@@ -712,6 +712,9 @@ fn first_pages_are_served_before_the_index_is_loaded() {
         .iter()
         .map(|&st| idx.page(st, 100).unwrap())
         .collect();
+    // Rows can be found before loading too.
+    let oid = early[1].rows[7].oid.clone();
+    assert_eq!(idx.row_of(&oid).unwrap(), Some(257));
     assert!(
         early[0].rows[3].refs.contains(&"tag: v1".to_string()),
         "labels saved too"

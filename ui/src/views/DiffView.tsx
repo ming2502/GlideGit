@@ -55,7 +55,17 @@ export function DiffView() {
       </div>
     );
   }
-  return <TextsDiff path={selectedPath} texts={diff} loading={loading} label="HEAD ↔ 工作区" staging={staging} />;
+  const annotatable = !!diff?.old && diff.new != null && !diff.binary;
+  return (
+    <TextsDiff
+      path={selectedPath}
+      texts={diff}
+      loading={loading}
+      label="HEAD ↔ 工作区"
+      staging={staging}
+      onAnnotate={annotatable ? () => useRepo.getState().setAnnotate({ path: selectedPath, rev: null }) : undefined}
+    />
+  );
 }
 
 /** Both versions of a file in the diff editor, with a header (name, line
@@ -67,6 +77,7 @@ export function TextsDiff({
   loading,
   label,
   staging,
+  onAnnotate,
 }: {
   path: string;
   texts: FileTexts | null;
@@ -75,6 +86,8 @@ export function TextsDiff({
   label: string;
   /** Block/line staging (working-copy diffs only). */
   staging?: Staging;
+  /** Open the file in the annotate view. */
+  onAnnotate?: () => void;
 }) {
   const [layout, setLayout] = useState<DiffLayout>(() => load<DiffLayout>("diffLayout", "split"));
   useEffect(() => save("diffLayout", layout), [layout]);
@@ -148,6 +161,11 @@ export function TextsDiff({
             统一
           </button>
         </span>
+        {onAnnotate && (
+          <button className="btn btn-sm" onClick={onAnnotate} title="显示每一行最后由谁、在哪个提交中修改">
+            注释
+          </button>
+        )}
         <span className="muted diff-label">{label}</span>
       </div>
       {body}
