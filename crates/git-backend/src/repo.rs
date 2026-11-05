@@ -841,22 +841,16 @@ impl Repo {
     /// this stays fast with hundreds of branches), and the recently checked
     /// out ones.
     pub fn branches(&self) -> Result<BranchList> {
-        // Two independent git processes: run them side by side.
-        let (text, reflog) = std::thread::scope(|scope| {
-            let reflog = scope.spawn(|| {
-                self.read(&["reflog", "show", "--format=%gs", "-n", "500", "HEAD", "--"])
-            });
-            let text = self.read(&[
-                "for-each-ref",
-                parse::FOR_EACH_REF_FORMAT,
-                "refs/heads",
-                "refs/remotes",
-            ]);
-            (text, reflog.join().expect("reflog reader panicked"))
-        });
-        let (local, remote) = parse::parse_for_each_ref(&text?);
+        let text = self.read(&[
+            "for-each-ref",
+            parse::FOR_EACH_REF_FORMAT,
+            "refs/heads",
+            "refs/remotes",
+        ])?;
+        let (local, remote) = parse::parse_for_each_ref(&text);
         // Reflog is missing on unborn branches; recent list is best-effort.
-        let recent = reflog
+        let recent = self
+            .head_reflog_subjects(500)
             .map(|r| parse::parse_recent_branches(&r, &local, 10))
             .unwrap_or_default();
         Ok(BranchList {
@@ -864,6 +858,39 @@ impl Repo {
             remote,
             recent,
         })
+    }
+
+    /// The last `n` HEAD reflog subjects, newest first (like
+    /// `git reflog show --format=%gs`). Read straight from `logs/HEAD`: one
+    /// git process less on every branch refresh, which matters on Windows
+    /// where starting one costs 30–60 ms. Repositories without that file
+    /// (reftable) ask git.
+    fn head_reflog_subjects(&self, n: usize) -> Result<String> {
+        use std::io::{Read, Seek, SeekFrom};
+        const TAIL: u64 = 256 * 1024;
+        let path = self.git_dir.join("logs").join("HEAD");
+        let Ok(mut f) = std::fs::File::open(&path) else {
+            let n = n.to_string();
+            return self.read(&["reflog", "show", "--format=%gs", "-n", &n, "HEAD", "--"]);
+        };
+        let len = f.metadata()?.len();
+        let start = len.saturating_sub(TAIL);
+        f.seek(SeekFrom::Start(start))?;
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes)?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut lines: Vec<&str> = text.lines().collect();
+        if start > 0 && !lines.is_empty() {
+            lines.remove(0); // started mid-line
+        }
+        // "<old> <new> <who> <time> <tz>\t<subject>"; oldest first in the file.
+        let subjects: Vec<&str> = lines
+            .iter()
+            .rev()
+            .filter_map(|l| l.split_once('\t').map(|(_, s)| s))
+            .take(n)
+            .collect();
+        Ok(subjects.join("\n"))
     }
 
     pub fn snapshot(&self) -> Result<RepoSnapshot> {

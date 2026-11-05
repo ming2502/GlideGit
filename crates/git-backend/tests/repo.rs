@@ -1601,3 +1601,46 @@ fn exited_git_is_not_held_up_by_inherited_pipes() {
     // itself must succeed.
     assert!(out.code == Some(0));
 }
+
+#[test]
+fn recent_branches_match_git_reflog() {
+    let (dir, repo) = repo_with_commit();
+    let names = ["a", "b", "c", "d", "e"];
+    for n in names {
+        repo.create_branch(n, None, false).unwrap();
+    }
+    // 120 checkouts in a scrambled order.
+    for i in 0..120usize {
+        repo.checkout_branch(names[(i * 7 + i / 3) % names.len()], false)
+            .unwrap();
+    }
+    // Expected: distinct targets of "checkout: moving from X to Y", newest first.
+    let log = cli()
+        .run(
+            dir.path(),
+            &["reflog", "show", "--format=%gs", "HEAD"],
+            RunOptions::read(),
+        )
+        .unwrap()
+        .stdout_str()
+        .into_owned();
+    let mut expected: Vec<String> = Vec::new();
+    for l in log.lines() {
+        if let Some((_, to)) = l
+            .strip_prefix("checkout: moving from ")
+            .and_then(|r| r.rsplit_once(" to "))
+        {
+            if !expected.iter().any(|e| e == to) && to != "main" {
+                expected.push(to.to_string());
+            }
+        }
+    }
+    let recent: Vec<String> = repo
+        .branches()
+        .unwrap()
+        .recent
+        .into_iter()
+        .filter(|b| b != "main")
+        .collect();
+    assert_eq!(recent, expected);
+}
