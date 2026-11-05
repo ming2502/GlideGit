@@ -156,10 +156,15 @@ fn check_ref_name(name: &str) -> Result<()> {
 }
 
 /// Full ref names the operation log may change.
+/// Where shelved changes are kept.
+pub const SHELF_REFS: &str = "refs/glidegit/shelf/";
+
 fn check_ref_target(name: &str) -> Result<()> {
-    let ok =
-        (name.starts_with("refs/heads/") || name.starts_with("refs/tags/") || name == "refs/stash")
-            && check_ref_name(name.trim_start_matches("refs/")).is_ok();
+    let ok = (name.starts_with("refs/heads/")
+        || name.starts_with("refs/tags/")
+        || name.starts_with(SHELF_REFS)
+        || name == "refs/stash")
+        && check_ref_name(name.trim_start_matches("refs/")).is_ok();
     if ok {
         Ok(())
     } else {
@@ -598,6 +603,7 @@ impl Repo {
             "refs/heads",
             "refs/tags",
             "refs/stash",
+            SHELF_REFS,
         ])?;
         let refs = out
             .lines()
@@ -1684,6 +1690,300 @@ impl Repo {
             }
         }
         Ok(d)
+    }
+
+    // ------------------------------------------------------------- shelf
+
+    fn nul_paths(paths: &[String]) -> Vec<u8> {
+        let mut input = Vec::new();
+        for p in paths {
+            input.extend_from_slice(p.as_bytes());
+            input.push(0);
+        }
+        input
+    }
+
+    /// Shelved changes, newest first.
+    pub fn shelf_list(&self) -> Result<Vec<ShelfEntry>> {
+        let out = self.read(&[
+            "for-each-ref",
+            "--sort=-committerdate",
+            "--format=%(refname)%00%(objectname)%00%(committerdate:unix)%00%(contents:subject)%00%(contents:body)%1e",
+            SHELF_REFS,
+        ])?;
+        Ok(out
+            .split('\x1e')
+            .filter_map(|rec| {
+                let mut f = rec.trim_start_matches('\n').split('\0');
+                let id = f.next()?.strip_prefix(SHELF_REFS)?.to_string();
+                let oid = f.next()?.to_string();
+                let time = f.next()?.parse().unwrap_or(0);
+                let name = f.next()?.to_string();
+                let changelist = f
+                    .next()
+                    .unwrap_or("")
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Changelist: "))
+                    .map(str::to_string);
+                Some(ShelfEntry {
+                    id,
+                    oid,
+                    name,
+                    changelist,
+                    time,
+                })
+            })
+            .collect())
+    }
+
+    /// Save the changes to `paths` (as they are in the working tree) on the
+    /// shelf, then revert those paths to HEAD.
+    pub fn shelve(
+        &self,
+        paths: &[String],
+        name: &str,
+        changelist: Option<&str>,
+    ) -> Result<ShelfEntry> {
+        if paths.is_empty() {
+            return Err(GitError::Invalid("nothing to shelve".into()));
+        }
+        for p in paths {
+            self.resolve(p.trim_end_matches('/'))?;
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(GitError::Invalid("the shelf entry needs a name".into()));
+        }
+        let head = self
+            .read(&["rev-parse", "--verify", "-q", "HEAD^{commit}"])
+            .map_err(|_| {
+                GitError::Invalid("nothing committed yet; commit once before shelving".into())
+            })?
+            .trim()
+            .to_string();
+        check_oid(&head)?;
+
+        // Build the tree in a scratch index: HEAD plus the paths as they are on disk.
+        let index = self.git_dir.join("glidegit-shelve.index");
+        let _ = std::fs::remove_file(&index);
+        let index_env = index.to_string_lossy().into_owned();
+        let with_index = || RunOptions::write().env("GIT_INDEX_FILE", &index_env);
+        let tree = (|| -> Result<String> {
+            self.cli
+                .run(&self.root, &["read-tree", &head], with_index())?;
+            self.cli.run(
+                &self.root,
+                &["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+                with_index().stdin(Self::nul_paths(paths)),
+            )?;
+            let out = self.cli.run(&self.root, &["write-tree"], with_index())?;
+            Ok(out.stdout_str().trim().to_string())
+        })();
+        let _ = std::fs::remove_file(&index);
+        let tree = tree?;
+        check_oid(&tree)?;
+
+        // What changed: added paths get deleted afterwards, the rest restored.
+        let out = self.cli.run(
+            &self.root,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--name-status",
+                &head,
+                &tree,
+            ],
+            RunOptions::read(),
+        )?;
+        let fields: Vec<String> = out
+            .stdout_str()
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        let (mut added, mut restore) = (Vec::new(), Vec::new());
+        for pair in fields.chunks(2) {
+            if let [status, path] = pair {
+                if status == "A" {
+                    added.push(path.clone());
+                } else {
+                    restore.push(path.clone());
+                }
+            }
+        }
+        if added.is_empty() && restore.is_empty() {
+            return Err(GitError::Invalid(
+                "these files have no changes to shelve".into(),
+            ));
+        }
+
+        let mut message = format!("{name}\n");
+        if let Some(cl) = changelist
+            .map(str::trim)
+            .filter(|c| !c.is_empty() && !c.contains('\n'))
+        {
+            message.push_str(&format!("\nChangelist: {cl}\n"));
+        }
+        let oid = self
+            .cli
+            .run(
+                &self.root,
+                &["commit-tree", &tree, "-p", &head, "-F", "-"],
+                RunOptions::write().stdin(message),
+            )?
+            .stdout_str()
+            .trim()
+            .to_string();
+        check_oid(&oid)?;
+        let id = format!(
+            "{}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0),
+            &oid[..8]
+        );
+        let ref_name = format!("{SHELF_REFS}{id}");
+        self.update_ref_checked(&ref_name, &oid, None)?;
+
+        // Revert the shelved paths.
+        self.write_with_paths(
+            &["restore", "--source=HEAD", "--staged", "--worktree"],
+            &restore,
+        )?;
+        self.write_with_paths(&["rm", "--cached", "-r", "-q", "--ignore-unmatch"], &added)?;
+        for p in &added {
+            let full = self.resolve(p)?;
+            if full.exists() {
+                std::fs::remove_file(&full)?;
+            }
+            // Drop directories the shelved files leave empty.
+            let mut dir = full.parent();
+            while let Some(d) = dir {
+                if d == self.root || std::fs::remove_dir(d).is_err() {
+                    break;
+                }
+                dir = d.parent();
+            }
+        }
+        Ok(ShelfEntry {
+            id,
+            oid,
+            name: name.to_string(),
+            changelist: changelist.map(str::to_string),
+            time: 0,
+        })
+    }
+
+    fn shelf_ref(&self, id: &str, oid: &str) -> Result<String> {
+        check_oid(oid)?;
+        let name = format!("{SHELF_REFS}{id}");
+        check_ref_target(&name)?;
+        let cur = self
+            .read(&["rev-parse", "--verify", "-q", &name])
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if cur != oid {
+            return Err(GitError::Invalid(
+                "the shelf changed; refresh and try again".into(),
+            ));
+        }
+        Ok(name)
+    }
+
+    /// Apply a shelf entry to the working tree. A patch that no longer
+    /// applies cleanly falls back to a three-way merge, which may leave
+    /// conflicts (returns true then; the entry is kept). Otherwise the entry
+    /// is removed unless `keep`.
+    pub fn unshelve(&self, id: &str, oid: &str, keep: bool) -> Result<bool> {
+        let name = self.shelf_ref(id, oid)?;
+        let parent = format!("{oid}^");
+        let patch = self
+            .cli
+            .run(
+                &self.root,
+                &[
+                    "diff",
+                    "--binary",
+                    "--full-index",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-color",
+                    "--src-prefix=a/",
+                    "--dst-prefix=b/",
+                    &parent,
+                    oid,
+                ],
+                RunOptions::read(),
+            )?
+            .stdout;
+        if patch.is_empty() {
+            return Err(GitError::Invalid("the shelf entry has no changes".into()));
+        }
+        let plain = self.cli.run(
+            &self.root,
+            &["apply", "--binary"],
+            RunOptions::write().stdin(patch.clone()),
+        );
+        let conflicts = match plain {
+            Ok(_) => false,
+            Err(first) => match self.cli.run(
+                &self.root,
+                &["apply", "--binary", "--3way"],
+                RunOptions::write().stdin(patch),
+            ) {
+                Ok(_) => false,
+                Err(e) => {
+                    let unmerged = self.read(&["ls-files", "-u"]).unwrap_or_default();
+                    if unmerged.trim().is_empty() {
+                        // Report why the plain apply failed when the 3-way one did not even start.
+                        return Err(if matches!(e, GitError::Failed { .. }) {
+                            e
+                        } else {
+                            first
+                        });
+                    }
+                    true
+                }
+            },
+        };
+        if !keep && !conflicts {
+            self.delete_ref_checked(&name, oid)?;
+        }
+        Ok(conflicts)
+    }
+
+    /// Remove a shelf entry.
+    pub fn drop_shelf(&self, id: &str, oid: &str) -> Result<()> {
+        let name = self.shelf_ref(id, oid)?;
+        self.delete_ref_checked(&name, oid)
+    }
+
+    /// Paths a shelf entry touches.
+    pub fn shelf_paths(&self, oid: &str) -> Result<Vec<String>> {
+        check_oid(oid)?;
+        let parent = format!("{oid}^");
+        let out = self.cli.run(
+            &self.root,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--name-only",
+                &parent,
+                oid,
+            ],
+            RunOptions::read(),
+        )?;
+        Ok(out
+            .stdout_str()
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect())
     }
 
     pub fn delete_branch(&self, name: &str, force: bool) -> Result<()> {

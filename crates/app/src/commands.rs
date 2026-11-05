@@ -4,12 +4,13 @@
 use std::sync::Arc;
 
 use glide_core::{
+    changelists::{self, Changelists},
     AuthorCount, CoreError, LogFilter, LogPage, LogStatus, OpEntry, OpKind, OpMeta, RepoSession,
 };
 use glide_git_backend::{
     Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide, ConflictTexts,
     DiffMode, FileDiff, FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoOperation,
-    RepoSnapshot, ResetMode, StashEntry, StashOptions,
+    RepoSnapshot, ResetMode, ShelfEntry, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -763,6 +764,83 @@ pub async fn push(
         s.remote_op(false, meta, move |r| r.push(force_with_lease, &net))
             .await?,
     )
+}
+
+/// The repository's changelists.
+#[tauri::command]
+pub async fn changelists(state: State<'_, AppState>, root: String) -> CmdResult<Changelists> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(|r| Ok(changelists::load(r.git_dir()))).await?)
+}
+
+/// Store the changelists; returns them as stored (repaired if needed).
+#[tauri::command]
+pub async fn save_changelists(
+    state: State<'_, AppState>,
+    root: String,
+    changelists: Changelists,
+) -> CmdResult<Changelists> {
+    let s = session(&state, &root).await?;
+    Ok(
+        s.read(move |r| Ok(changelists::save(r.git_dir(), &changelists)?))
+            .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn shelf_list(state: State<'_, AppState>, root: String) -> CmdResult<Vec<ShelfEntry>> {
+    let s = session(&state, &root).await?;
+    Ok(s.read(|r| r.shelf_list()).await?)
+}
+
+/// Shelve the changes to `paths` and revert them.
+#[tauri::command]
+pub async fn shelve(
+    state: State<'_, AppState>,
+    root: String,
+    paths: Vec<String>,
+    name: String,
+    changelist: Option<String>,
+) -> CmdResult<ShelfEntry> {
+    let s = session(&state, &root).await?;
+    let meta = OpMeta::new(OpKind::Shelve, format!("搁置：{}", headline(&name)))
+        .backup_files(paths.clone());
+    Ok(s.write_op(meta, move |r| {
+        r.shelve(&paths, &name, changelist.as_deref())
+    })
+    .await?)
+}
+
+/// Apply a shelf entry; true when it left conflicts to resolve.
+#[tauri::command]
+pub async fn unshelve(
+    state: State<'_, AppState>,
+    root: String,
+    id: String,
+    oid: String,
+    name: String,
+    keep: bool,
+) -> CmdResult<bool> {
+    let s = session(&state, &root).await?;
+    let rev = oid.clone();
+    let paths = s.read(move |r| r.shelf_paths(&rev)).await?;
+    let meta =
+        OpMeta::new(OpKind::Shelve, format!("取消搁置：{}", headline(&name))).backup_files(paths);
+    Ok(s.write_op(meta, move |r| r.unshelve(&id, &oid, keep))
+        .await?)
+}
+
+#[tauri::command]
+pub async fn drop_shelf(
+    state: State<'_, AppState>,
+    root: String,
+    id: String,
+    oid: String,
+    name: String,
+) -> CmdResult<()> {
+    let s = session(&state, &root).await?;
+    let meta = OpMeta::new(OpKind::Shelve, format!("删除搁置：{}", headline(&name)));
+    Ok(s.write_op(meta, move |r| r.drop_shelf(&id, &oid)).await?)
 }
 
 /// Recorded operations of a repository, newest first.

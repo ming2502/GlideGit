@@ -3,6 +3,7 @@
 
 pub mod askpass;
 mod cache;
+pub mod changelists;
 mod error;
 mod manager;
 pub mod oplog;

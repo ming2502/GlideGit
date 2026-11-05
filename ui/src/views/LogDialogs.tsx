@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { ResetMode } from "../bindings/ResetMode";
 
-function Dialog({
+export function Dialog({
   title,
   children,
   onCancel,

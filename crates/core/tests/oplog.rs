@@ -271,3 +271,56 @@ async fn push_and_conflicts_are_not_undoable() {
     .unwrap();
     assert_eq!(s.operations().len(), n);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn undo_shelve_and_unshelve() {
+    let (dir, _cache, s) = setup().await;
+    fs::write(dir.path().join("a.txt"), "shelved\n").unwrap();
+    fs::write(dir.path().join("n.txt"), "new\n").unwrap();
+    let paths = vec!["a.txt".to_string(), "n.txt".to_string()];
+    let meta = OpMeta::new(OpKind::Shelve, "搁置：w").backup_files(paths.clone());
+    let p = paths.clone();
+    let e = s
+        .write_op(meta, move |r| r.shelve(&p, "w", None))
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "one\n"
+    );
+
+    // Undo the shelve: the entry goes away and the files come back.
+    let op = s.operations()[0].clone();
+    assert!(op.undo.as_deref().unwrap().contains("搁置记录"), "{op:?}");
+    s.undo(op.id).await.unwrap();
+    assert!(s.repo().shelf_list().unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "shelved\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("n.txt")).unwrap(),
+        "new\n"
+    );
+
+    // Shelve again, unshelve, undo the unshelve: entry back, files reverted.
+    let p = paths.clone();
+    let e2 = s.write(move |r| r.shelve(&p, "w", None)).await.unwrap();
+    assert!(!e2.id.is_empty() && !e.id.is_empty());
+    let meta = OpMeta::new(OpKind::Shelve, "取消搁置：w").backup_files(paths.clone());
+    let (id, oid) = (e2.id.clone(), e2.oid.clone());
+    s.write_op(meta, move |r| r.unshelve(&id, &oid, false))
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "shelved\n"
+    );
+    s.undo(s.operations()[0].id).await.unwrap();
+    assert_eq!(s.repo().shelf_list().unwrap().len(), 1);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "one\n"
+    );
+    assert!(!dir.path().join("n.txt").exists());
+}

@@ -1,7 +1,7 @@
 // Stash view: the list of stashes with apply / pop / drop, and the selected
 // stash's changes in the same details pane the Log uses. Also the dialog
 // that creates a stash.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { api } from "../api";
 import type { CommitDetails } from "../bindings/CommitDetails";
 import type { CommitFile } from "../bindings/CommitFile";
@@ -11,8 +11,26 @@ import { relativeTime } from "../lib/format";
 import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
 import { CommitDetailsPane } from "./CommitDetails";
+import { ShelfPanel } from "./ShelfView";
 
+/** Stash and Shelf, switched by tabs in the side panel's header. */
 export function StashView() {
+  const [tab, setTab] = useState<"stash" | "shelf">(() => load("stashTab", "stash"));
+  useEffect(() => save("stashTab", tab), [tab]);
+  const tabs = (
+    <span className="seg">
+      <button className={tab === "stash" ? "on" : ""} onClick={() => setTab("stash")}>
+        Stash
+      </button>
+      <button className={tab === "shelf" ? "on" : ""} onClick={() => setTab("shelf")}>
+        Shelf
+      </button>
+    </span>
+  );
+  return tab === "stash" ? <StashPanel tabs={tabs} /> : <ShelfPanel tabs={tabs} />;
+}
+
+function StashPanel({ tabs }: { tabs: ReactNode }) {
   const root = useRepo((s) => s.root)!;
   const snapshot = useRepo((s) => s.snapshot);
   const runTask = useRepo((s) => s.runTask);
@@ -88,7 +106,7 @@ export function StashView() {
     <div className="stash-view">
       <div className="stash-side">
         <div className="panel-header">
-          <span className="panel-title">Stash</span>
+          {tabs}
           <span className="muted">{list ? `${list.length} 个` : ""}</span>
           <span className="spacer" />
           <button className="btn btn-sm" onClick={() => setStashDialog(true)} title="把当前修改存入 stash">

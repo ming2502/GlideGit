@@ -1460,3 +1460,100 @@ fn compare_branches_and_files() {
     assert!(repo.compare("nope", "main", 10).is_err());
     assert_eq!(repo.resolve_commit("HEAD").unwrap(), m1);
 }
+
+#[test]
+fn shelve_and_unshelve() {
+    let (dir, repo) = repo_with_commit();
+    let root = dir.path();
+    write(root, "a.txt", "one\ntwo\nthree\nfour\n");
+    write(root, "b.txt", "bee changed\n");
+    write(root, "new dir/n.txt", "new\n");
+    repo.stage(&s(&["b.txt"])).unwrap();
+
+    let e = repo
+        .shelve(&s(&["a.txt", "new dir/"]), "parser work", Some("Parser"))
+        .unwrap();
+    // Shelved paths are back to HEAD; the other change stays (and stays staged).
+    assert_eq!(
+        fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\ntwo\nthree\n"
+    );
+    assert!(!root.join("new dir").exists());
+    let (_, changes) = repo.status().unwrap();
+    assert_eq!(changes.len(), 1);
+    assert!(find(&changes, "b.txt").staged.is_some());
+
+    let list = repo.shelf_list().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].name, "parser work");
+    assert_eq!(list[0].changelist.as_deref(), Some("Parser"));
+    assert_eq!(list[0].oid, e.oid);
+    let mut paths = repo.shelf_paths(&e.oid).unwrap();
+    paths.sort();
+    assert_eq!(paths, s(&["a.txt", "new dir/n.txt"]));
+    // The shelf is not a branch: it stays out of the refs the Log shows.
+    assert!(repo
+        .branches()
+        .unwrap()
+        .local
+        .iter()
+        .all(|b| !b.name.contains("shelf")));
+
+    // Keep: applied, entry kept.
+    assert!(!repo.unshelve(&e.id, &e.oid, true).unwrap());
+    assert_eq!(
+        fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\ntwo\nthree\nfour\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("new dir/n.txt")).unwrap(),
+        "new\n"
+    );
+    assert_eq!(repo.shelf_list().unwrap().len(), 1);
+    // A stale oid is refused; drop removes it.
+    assert!(repo.drop_shelf(&e.id, &"0".repeat(40)).is_err());
+    repo.drop_shelf(&e.id, &e.oid).unwrap();
+    assert!(repo.shelf_list().unwrap().is_empty());
+}
+
+#[test]
+fn unshelve_onto_moved_head_and_conflicts() {
+    let (dir, repo) = repo_with_commit();
+    let root = dir.path();
+    // Shelve an edit at the end of a.txt.
+    write(root, "a.txt", "one\ntwo\nthree\nshelved\n");
+    let e = repo.shelve(&s(&["a.txt"]), "tail", None).unwrap();
+    // HEAD moves on with an unrelated edit at the top: still applies (3-way).
+    write(root, "a.txt", "zero\none\ntwo\nthree\n");
+    repo.stage_all().unwrap();
+    repo.commit("top", false).unwrap();
+    assert!(!repo.unshelve(&e.id, &e.oid, false).unwrap());
+    assert_eq!(
+        fs::read_to_string(root.join("a.txt")).unwrap(),
+        "zero\none\ntwo\nthree\nshelved\n"
+    );
+    assert!(repo.shelf_list().unwrap().is_empty());
+
+    // Shelve again, then commit a conflicting edit of the same line.
+    repo.rollback(&s(&["a.txt"]), &[]).unwrap();
+    write(root, "b.txt", "mine\n");
+    let e = repo.shelve(&s(&["b.txt"]), "b", None).unwrap();
+    write(root, "b.txt", "theirs\n");
+    repo.stage_all().unwrap();
+    repo.commit("b", false).unwrap();
+    assert!(repo.unshelve(&e.id, &e.oid, false).unwrap());
+    let (_, changes) = repo.status().unwrap();
+    assert!(find(&changes, "b.txt").conflicted);
+    // Kept, since it did not apply cleanly.
+    assert_eq!(repo.shelf_list().unwrap().len(), 1);
+}
+
+#[test]
+fn shelve_rejects_nothing_and_unborn() {
+    let (dir, repo) = new_repo();
+    write(dir.path(), "a.txt", "x\n");
+    assert!(repo.shelve(&s(&["a.txt"]), "n", None).is_err());
+    let (_dir, repo) = repo_with_commit();
+    assert!(repo.shelve(&s(&["a.txt"]), "n", None).is_err());
+    assert!(repo.shelve(&s(&["../x"]), "n", None).is_err());
+}

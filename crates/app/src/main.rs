@@ -141,6 +141,12 @@ fn main() {
             commands::push_preview,
             commands::operation_log,
             commands::undo_operation,
+            commands::changelists,
+            commands::save_changelists,
+            commands::shelf_list,
+            commands::shelve,
+            commands::unshelve,
+            commands::drop_shelf,
             commands::cancel_task,
             commands::askpass_respond,
         ])

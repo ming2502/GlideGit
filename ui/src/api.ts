@@ -19,6 +19,8 @@ import type { LogStatus } from "./bindings/LogStatus";
 import type { Progress } from "./bindings/Progress";
 import type { PushPreview } from "./bindings/PushPreview";
 import type { OpEntry } from "./bindings/OpEntry";
+import type { Changelists } from "./bindings/Changelists";
+import type { ShelfEntry } from "./bindings/ShelfEntry";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 import type { RebaseStep } from "./bindings/RebaseStep";
 import type { ResetMode } from "./bindings/ResetMode";
@@ -119,6 +121,14 @@ export const api = {
   pushPreview: (root: string) => invoke<PushPreview>("push_preview", { root }),
   operationLog: (root: string) => invoke<OpEntry[]>("operation_log", { root }),
   undoOperation: (root: string, id: number) => invoke<string>("undo_operation", { root, id }),
+  changelists: (root: string) => invoke<Changelists>("changelists", { root }),
+  saveChangelists: (root: string, changelists: Changelists) => invoke<Changelists>("save_changelists", { root, changelists }),
+  shelfList: (root: string) => invoke<ShelfEntry[]>("shelf_list", { root }),
+  shelve: (root: string, paths: string[], name: string, changelist: string | null) =>
+    invoke<ShelfEntry>("shelve", { root, paths, name, changelist }),
+  unshelve: (root: string, id: string, oid: string, name: string, keep: boolean) =>
+    invoke<boolean>("unshelve", { root, id, oid, name, keep }),
+  dropShelf: (root: string, id: string, oid: string, name: string) => invoke<void>("drop_shelf", { root, id, oid, name }),
   cancelTask: (taskId: number) => invoke<boolean>("cancel_task", { taskId }),
   askpassRespond: (id: number, answer: string | null) => invoke<boolean>("askpass_respond", { id, answer }),
 };

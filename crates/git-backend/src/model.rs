@@ -442,3 +442,18 @@ pub struct PushPreview {
     /// Commits on the upstream that are not local (push would be rejected).
     pub behind: u32,
 }
+
+/// A shelved set of changes (IntelliJ's Shelf): a commit on top of the HEAD
+/// it was made from, kept under `refs/glidegit/shelf/<id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ShelfEntry {
+    pub id: String,
+    pub oid: String,
+    pub name: String,
+    /// The changelist the changes came from, to restore them into.
+    pub changelist: Option<String>,
+    /// Unix seconds.
+    pub time: i64,
+}

@@ -45,6 +45,7 @@ pub enum OpKind {
     Rollback,
     Discard,
     Stash,
+    Shelve,
     /// Finishing a stopped rebase / cherry-pick / revert / merge.
     Continue,
     Undo,
@@ -329,9 +330,12 @@ pub fn plan(
         if name == "refs/stash" || Some(name) == head_branch {
             continue;
         }
-        let label = name
-            .trim_start_matches("refs/heads/")
-            .trim_start_matches("refs/tags/");
+        let label = if name.starts_with(glide_git_backend::SHELF_REFS) {
+            "搁置记录"
+        } else {
+            name.trim_start_matches("refs/heads/")
+                .trim_start_matches("refs/tags/")
+        };
         match (before.refs.get(name), after.refs.get(name)) {
             (None, Some(a)) => {
                 steps.push(UndoStep::DeleteRef {
@@ -383,6 +387,8 @@ pub fn plan(
         });
         what.push(if meta.kind == OpKind::Reset {
             "恢复重置前的本地修改".into()
+        } else if meta.kind == OpKind::Shelve {
+            "恢复文件到操作前的内容".into()
         } else {
             "恢复被丢弃的修改（作为未暂存的修改）".into()
         });

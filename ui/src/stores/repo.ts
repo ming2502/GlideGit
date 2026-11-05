@@ -6,6 +6,7 @@ import type { FileChange } from "../bindings/FileChange";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { FileTexts } from "../bindings/FileTexts";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
+import type { Changelists } from "../bindings/Changelists";
 import { load, save } from "../lib/storage";
 
 export type View = "changes" | "log" | "stash";
@@ -65,6 +66,8 @@ interface RepoState {
   branchPopup: boolean;
   /** The undo center (operation log) popup is open. */
   undoCenter: boolean;
+  /** Changelists of the active repository, once loaded. */
+  changelists: { root: string; state: Changelists } | null;
   confirm: ConfirmRequest | null;
   pushDialog: boolean;
   stashDialog: boolean;
@@ -118,6 +121,9 @@ interface RepoState {
   dismissToast: (id: number) => void;
   setBranchPopup: (open: boolean) => void;
   setUndoCenter: (open: boolean) => void;
+  loadChangelists: () => Promise<void>;
+  /** Change the changelists (applied at once, then saved). */
+  updateChangelists: (fn: (s: Changelists) => Changelists) => void;
   ask: (req: Omit<ConfirmRequest, "resolve">) => Promise<boolean>;
   setPullMode: (m: PullMode) => void;
 }
@@ -154,6 +160,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   toasts: [],
   branchPopup: false,
   undoCenter: false,
+  changelists: null,
   confirm: null,
   pushDialog: false,
   stashDialog: false,
@@ -220,6 +227,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       pendingStage: {},
       branchPopup: false,
       undoCenter: false,
+      changelists: null,
     });
     persistTabs(saved, root);
     if (target.selectedPath) void get().reloadDiff();
@@ -371,6 +379,26 @@ export const useRepo = create<RepoState>((set, get) => ({
 
   setBranchPopup: (branchPopup) => set({ branchPopup }),
   setUndoCenter: (undoCenter) => set({ undoCenter }),
+  async loadChangelists() {
+    const root = get().root;
+    if (!root) return;
+    try {
+      const state = await api.changelists(root);
+      if (get().root === root) set({ changelists: { root, state } });
+    } catch (e) {
+      get().toast({ kind: "error", title: "无法读取 Changelist", detail: errorMessage(e) });
+    }
+  },
+  updateChangelists(fn) {
+    const cur = get().changelists;
+    if (!cur || cur.root !== get().root) return;
+    const next = fn(cur.state);
+    if (next === cur.state) return;
+    set({ changelists: { root: cur.root, state: next } });
+    api.saveChangelists(cur.root, next).catch((e) =>
+      get().toast({ kind: "error", title: "Changelist 保存失败", detail: errorMessage(e) }),
+    );
+  },
 
   ask(req) {
     return new Promise<boolean>((resolve) => {

@@ -7,13 +7,25 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { VirtualList } from "../components/VirtualList";
 import { load, save } from "../lib/storage";
 import { splitPath } from "../lib/format";
+import { addList, DEFAULT_ID, groupChanges, listOf, moveFiles, prune, removeList, renameList, setActive } from "../lib/changelists";
 import { isIncluded, useRepo } from "../stores/repo";
+import { MoveDialog, NameDialog, ShelveDialog } from "./ChangelistDialogs";
 
-type GroupId = "conflicts" | "changes" | "unversioned";
+/** "conflicts", "unversioned", or "cl:<changelist id>". */
+type GroupId = string;
 
 type Row =
-  | { type: "group"; id: GroupId; title: string; changes: FileChange[] }
+  | { type: "group"; id: GroupId; title: string; changes: FileChange[]; listId?: string; active?: boolean }
   | { type: "file"; change: FileChange; group: GroupId };
+
+type DialogState =
+  | { kind: "move"; paths: string[]; current: string | null }
+  | { kind: "new"; paths: string[] }
+  | { kind: "rename"; id: string; name: string }
+  | { kind: "shelve"; changes: FileChange[]; name: string; changelist: string | null };
+
+/** Paths to pass to git for these changes (renames: both sides). */
+const gitPaths = (changes: FileChange[]) => changes.flatMap((c) => (c.origPath ? [c.path, c.origPath] : [c.path]));
 
 const ROW_H = 24;
 
@@ -65,11 +77,23 @@ export function CommitPanel() {
   const [message, setMessage] = useState(() => load(draftKey, ""));
   const [amend, setAmend] = useState(false);
   const [collapsed, setCollapsed] = useState<Partial<Record<GroupId, boolean>>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; change: FileChange } | null>(null);
+  const [menu, setMenu] = useState<
+    { x: number; y: number; change: FileChange } | { x: number; y: number; list: string; changes: FileChange[] } | null
+  >(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const cl = useRepo((s) => (s.changelists?.root === root ? s.changelists.state : null));
+  const updateLists = useRepo((s) => s.updateChangelists);
   const msgRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => save(draftKey, message), [draftKey, message]);
+  useEffect(() => {
+    if (!cl) void useRepo.getState().loadChangelists();
+  }, [cl]);
+  // Files that no longer have changes leave their lists.
+  useEffect(() => {
+    if (cl) updateLists((st) => prune(st, snapshot.changes.map((c) => c.path)));
+  }, [cl, snapshot.changes, updateLists]);
 
   const included = (c: FileChange) => (c.path in pending ? pending[c.path] : isIncluded(c));
 
@@ -82,18 +106,23 @@ export function CommitPanel() {
     };
   }, [snapshot.changes]);
 
+  const lists = useMemo(() => (cl ? groupChanges(cl, groups.changes) : null), [cl, groups.changes]);
+
   const rows = useMemo(() => {
     const out: Row[] = [];
-    const add = (id: GroupId, title: string, changes: FileChange[]) => {
-      if (id !== "changes" && changes.length === 0) return;
-      out.push({ type: "group", id, title, changes });
+    const add = (id: GroupId, title: string, changes: FileChange[], extra: Partial<Extract<Row, { type: "group" }>> = {}) => {
+      out.push({ type: "group", id, title, changes, ...extra });
       if (!collapsed[id]) for (const c of changes) out.push({ type: "file", change: c, group: id });
     };
-    add("conflicts", "Merge Conflicts", groups.conflicts);
-    add("changes", "Changes", groups.changes);
-    add("unversioned", "Unversioned Files", groups.unversioned);
+    if (groups.conflicts.length) add("conflicts", "Merge Conflicts", groups.conflicts);
+    if (lists && cl) {
+      for (const g of lists) {
+        add(`cl:${g.list.id}`, g.list.name, g.changes, { listId: g.list.id, active: lists.length > 1 && g.list.id === cl.active });
+      }
+    } else add("cl:default", "Changes", groups.changes);
+    if (groups.unversioned.length) add("unversioned", "Unversioned Files", groups.unversioned);
     return out;
-  }, [groups, collapsed]);
+  }, [groups, lists, cl, collapsed]);
 
   const selectedIndex = rows.findIndex((r) => r.type === "file" && r.change.path === selectedPath);
   const selectedChange = selectedIndex >= 0 ? (rows[selectedIndex] as { change: FileChange }).change : null;
@@ -137,6 +166,41 @@ export function CommitPanel() {
       if (added.length) await api.unstage(r, added);
       await api.rollback(r, tracked, untracked);
     });
+  }
+
+  /** Open the move dialog for these files. */
+  function startMove(changes: FileChange[]) {
+    if (!cl || changes.length === 0) return;
+    const ids = new Set(changes.map((c) => listOf(cl, c.path)));
+    setDialog({ kind: "move", paths: changes.map((c) => c.path), current: ids.size === 1 ? [...ids][0] : null });
+  }
+
+  function startShelve(changes: FileChange[], listId?: string) {
+    if (changes.length === 0) return;
+    const list = cl?.lists.find((l) => l.id === listId);
+    const name = list
+      ? list.name
+      : changes.length === 1
+        ? `${splitPath(changes[0].path).name} 的修改`
+        : `${changes.length} 个文件的修改`;
+    const ids = cl ? new Set(changes.map((c) => listOf(cl, c.path))) : new Set<string>();
+    const only = ids.size === 1 && cl ? cl.lists.find((l) => l.id === [...ids][0]) : undefined;
+    // Unshelving puts the files back into the list they came from.
+    const from = list ?? only;
+    setDialog({ kind: "shelve", changes, name, changelist: from && from.id !== DEFAULT_ID ? from.name : null });
+  }
+
+  async function shelve(changes: FileChange[], name: string, changelist: string | null) {
+    await runTask("搁置修改", (r) => api.shelve(r, gitPaths(changes), name, changelist), `已搁置：${name}`);
+  }
+
+  /** Include exactly this list's files in the commit. */
+  async function commitList(changes: FileChange[]) {
+    const others = snapshot.changes.filter((c) => !c.conflicted && !changes.includes(c) && included(c) !== false);
+    if (others.length) await setIncluded(others, false);
+    const missing = changes.filter((c) => included(c) !== true);
+    if (missing.length) await setIncluded(missing, true);
+    msgRef.current?.focus();
   }
 
   async function commit(andPush: boolean) {
@@ -184,6 +248,25 @@ export function CommitPanel() {
       run: () => selectedChange && void rollback([selectedChange]),
       enabled: () => selectedChange != null,
     },
+    {
+      id: "changes.moveToList",
+      title: "Move to Another Changelist…",
+      keys: ["f6"],
+      run: () => selectedChange && startMove([selectedChange]),
+      enabled: () => selectedChange != null && !selectedChange.conflicted && selectedChange.unstaged !== "untracked",
+    },
+    {
+      id: "changes.newList",
+      title: "New Changelist…",
+      run: () => setDialog({ kind: "new", paths: [] }),
+      enabled: () => cl != null,
+    },
+    {
+      id: "changes.shelve",
+      title: "Shelve Changes…",
+      run: () => selectedChange && startShelve([selectedChange]),
+      enabled: () => selectedChange != null && !selectedChange.conflicted,
+    },
   ]);
 
   function onListKey(e: KeyboardEvent<HTMLDivElement>) {
@@ -203,6 +286,32 @@ export function CommitPanel() {
     }
   }
 
+  function listMenuItems(listId: string, changes: FileChange[]): (MenuItem | "separator")[] {
+    if (!cl) return [];
+    const list = cl.lists.find((l) => l.id === listId);
+    if (!list) return [];
+    const paths = snapshot.changes.map((c) => c.path);
+    return [
+      { label: "提交此 Changelist…", disabled: changes.length === 0, onClick: () => void commitList(changes) },
+      { label: "搁置此 Changelist…", disabled: changes.length === 0, onClick: () => startShelve(changes, listId) },
+      { label: "移动全部文件到…", disabled: changes.length === 0, onClick: () => startMove(changes) },
+      "separator",
+      {
+        label: "设为活动 Changelist",
+        disabled: cl.active === listId,
+        onClick: () => updateLists((st) => setActive(st, listId, paths)),
+      },
+      { label: "新建 Changelist…", onClick: () => setDialog({ kind: "new", paths: [] }) },
+      { label: "重命名…", onClick: () => setDialog({ kind: "rename", id: listId, name: list.name }) },
+      {
+        label: "删除 Changelist",
+        danger: true,
+        disabled: listId === DEFAULT_ID,
+        onClick: () => updateLists((st) => removeList(st, listId)),
+      },
+    ];
+  }
+
   function menuItems(c: FileChange): (MenuItem | "separator")[] {
     const inc = included(c);
     if (c.conflicted)
@@ -214,6 +323,11 @@ export function CommitPanel() {
     return [
       { label: inc === true ? "从提交中排除 (Unstage)" : "加入提交 (Stage)", onClick: () => toggle([c]) },
       { label: "Rollback…", shortcut: shortcutOf("changes.rollback"), danger: true, onClick: () => void rollback([c]) },
+      "separator",
+      ...(c.unstaged !== "untracked"
+        ? [{ label: "移动到另一个 Changelist…", shortcut: shortcutOf("changes.moveToList"), onClick: () => startMove([c]) }]
+        : []),
+      { label: "搁置修改…", onClick: () => startShelve([c]) },
       "separator",
       {
         label: "显示历史",
@@ -248,7 +362,17 @@ export function CommitPanel() {
             onKeyDown={onListKey}
             render={(row) =>
               row.type === "group" ? (
-                <div key={`g:${row.id}`} className="row group-row" style={{ height: ROW_H }}>
+                <div
+                  key={`g:${row.id}`}
+                  className={`row group-row ${row.active ? "active-list" : ""}`}
+                  style={{ height: ROW_H }}
+                  onContextMenu={(e) => {
+                    if (!row.listId) return;
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, list: row.listId, changes: row.changes });
+                  }}
+                  title={row.active ? "活动 Changelist：新的修改会归入这里" : undefined}
+                >
                   <button
                     className={`twisty ${collapsed[row.id] ? "closed" : ""}`}
                     onClick={() => setCollapsed((c) => ({ ...c, [row.id]: !c[row.id] }))}
@@ -256,6 +380,7 @@ export function CommitPanel() {
                   />
                   {row.id !== "conflicts" && <Checkbox state={groupState(row.changes)} onToggle={() => toggle(row.changes)} />}
                   <span className="group-title">{row.title}</span>
+                  {row.active && <span className="cl-active">活动</span>}
                   <span className="muted">{row.changes.length} files</span>
                 </div>
               ) : (
@@ -300,7 +425,71 @@ export function CommitPanel() {
           </button>
         </div>
       </div>
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.change)} onClose={() => setMenu(null)} />}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={"change" in menu ? menuItems(menu.change) : listMenuItems(menu.list, menu.changes)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {dialog?.kind === "move" && cl && (
+        <MoveDialog
+          state={cl}
+          count={dialog.paths.length}
+          current={dialog.current}
+          onCancel={() => setDialog(null)}
+          onMove={(t) => {
+            setDialog(null);
+            updateLists((st) => {
+              if ("id" in t) return moveFiles(st, dialog.paths, t.id);
+              const [next, id] = addList(st, t.name);
+              return moveFiles(next, dialog.paths, id);
+            });
+          }}
+        />
+      )}
+      {dialog?.kind === "new" && cl && (
+        <NameDialog
+          title="新建 Changelist"
+          initial=""
+          state={cl}
+          activeOption
+          onCancel={() => setDialog(null)}
+          onSubmit={(name, makeActive) => {
+            setDialog(null);
+            updateLists((st) => {
+              const [next, id] = addList(st, name);
+              const moved = moveFiles(next, dialog.paths, id);
+              return makeActive ? setActive(moved, id, snapshot.changes.map((c) => c.path)) : moved;
+            });
+          }}
+        />
+      )}
+      {dialog?.kind === "rename" && cl && (
+        <NameDialog
+          title="重命名 Changelist"
+          initial={dialog.name}
+          state={cl}
+          except={dialog.id}
+          onCancel={() => setDialog(null)}
+          onSubmit={(name) => {
+            setDialog(null);
+            updateLists((st) => renameList(st, dialog.id, name));
+          }}
+        />
+      )}
+      {dialog?.kind === "shelve" && (
+        <ShelveDialog
+          initial={dialog.name}
+          count={dialog.changes.length}
+          onCancel={() => setDialog(null)}
+          onSubmit={(name) => {
+            setDialog(null);
+            void shelve(dialog.changes, name, dialog.changelist);
+          }}
+        />
+      )}
     </div>
   );
 }

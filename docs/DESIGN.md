@@ -180,6 +180,11 @@ struct Task { id, repo, kind, priority, cancel: CancellationToken, progress: Sen
 - 撤销本身也通过同一机制记录（类型为 Undo，不能再撤销），原条目标记为已撤销。
 - 远程引用不参与比较，所以拉取只撤销本地分支的移动，推送只记录不撤销。
 
+### 4.4.2 Changelist 与 Shelf（M3-8）
+
+- Changelist 状态（列表、活动列表、路径到列表的映射）存放在 `<git dir>/glidegit/changelists.json`，由前端维护，后端只负责读写和修正（缺少默认列表、指向不存在的列表等）。该目录不在 watcher 关注的路径中，保存不会触发刷新。
+- Shelf 条目是 `refs/glidegit/shelf/<id>` 指向的提交，父提交是搁置时的 HEAD。取消搁置以补丁方式应用（必要时三方合并），所以 HEAD 变化后仍能取回。OpLog 的引用比较包含这些引用，搁置和取消搁置都能撤销。
+
 ### 4.5 Status 与 Watcher
 
 - 监听工作区与 `.git/{HEAD,index,refs,packed-refs,MERGE_HEAD,rebase-merge,rebase-apply}`。

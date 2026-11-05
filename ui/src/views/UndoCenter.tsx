@@ -22,6 +22,7 @@ const KIND_ICON: Record<OpKind, string> = {
   rollback: "⌫",
   discard: "⌫",
   stash: "⧉",
+  shelve: "⊟",
   continue: "▸",
   undo: "↶",
   other: "•",

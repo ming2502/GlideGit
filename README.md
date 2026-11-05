@@ -42,13 +42,14 @@ cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   #
 | 推送 | ⌘⇧K | Ctrl+Shift+K |
 | 拉取（Update Project） | ⌘T | Ctrl+T |
 | 分支弹窗 | ⌘⇧\` / ⌘B | Ctrl+Shift+\` / Ctrl+B |
-| Commit / Log / Stash 视图 | ⌘0 / ⌘9 / ⌘8 | Ctrl+0 / Ctrl+9 / Ctrl+8 |
+| Commit / Log / Stash·Shelf 视图 | ⌘0 / ⌘9 / ⌘8 | Ctrl+0 / Ctrl+9 / Ctrl+8 |
 | Stash 修改 | ⌘⇧S | Ctrl+Shift+S |
 | Log 中搜索 | ⌘F | Ctrl+F |
 | 下一处 / 上一处修改（diff） | F7 / ⇧F7 | F7 / Shift+F7 |
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
 | 撤销中心（撤销最近的操作） | ⌘⇧U | Ctrl+Shift+U |
+| 移动到另一个 Changelist | F6 | F6 |
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |
 | 关闭仓库标签 | ⌘⌥W | Ctrl+Alt+W |
 | 变更列表：切换 / 勾选 | ↑↓ / 空格 | ↑↓ / Space |

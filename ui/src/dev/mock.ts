@@ -427,12 +427,49 @@ function recordOp(cmd: string, a: Record<string, unknown>) {
   ops.push({ id: ops.length + 1, time: Math.floor(Date.now() / 1000), kind, title, undo, blocked: null, undone: false });
 }
 
+let changelists = {
+  lists: [
+    { id: "default", name: "Changes" },
+    { id: "log-filters", name: "Log filters" },
+  ],
+  active: "default",
+  files: { "ui/src/views/LogView.tsx": "log-filters" } as Record<string, string>,
+};
+let shelfSeq = 1;
+let shelf: { id: string; oid: string; name: string; changelist: string | null; time: number }[] = [
+  { id: "1700000000000-a1b2c3d4", oid: mockOid(699_999), name: "试验：Canvas 图的抗锯齿", changelist: "Graph", time: t0 - 86400 * 2 },
+];
+
 export function installMock(): void {
   mockWindows("main");
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     recordOp(cmd, a);
     switch (cmd) {
+      case "changelists":
+        return structuredClone(changelists);
+      case "save_changelists":
+        changelists = structuredClone(a.changelists as typeof changelists);
+        return structuredClone(changelists);
+      case "shelf_list":
+        return [...shelf];
+      case "shelve": {
+        const paths = a.paths as string[];
+        const e = { id: `${Date.now()}-${shelfSeq}`, oid: mockOid(700_000 + shelfSeq++), name: String(a.name), changelist: (a.changelist as string | null) ?? null, time: Math.floor(Date.now() / 1000) };
+        shelf.unshift(e);
+        changes = changes.filter((c) => !paths.includes(c.path));
+        return sleep(200).then(() => (publish(), e));
+      }
+      case "unshelve": {
+        const i = shelf.findIndex((e) => e.id === a.id);
+        if (i < 0) throw { kind: "invalid", message: "the shelf changed; refresh and try again" };
+        if (!a.keep) shelf.splice(i, 1);
+        changes = [{ path: "crates/log-index/src/filter.rs", origPath: null, staged: null, unstaged: "modified", conflicted: false }, ...changes.filter((c) => c.path !== "crates/log-index/src/filter.rs")];
+        return sleep(200).then(() => (publish(), false));
+      }
+      case "drop_shelf":
+        shelf = shelf.filter((e) => e.id !== a.id);
+        return sleep(100).then(() => null);
       case "operation_log":
         return [...ops].reverse();
       case "undo_operation": {

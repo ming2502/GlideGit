@@ -2519,3 +2519,29 @@ body.resizing-v * {
 .uc-item.active .uc-undo {
   visibility: visible;
 }
+
+/* ---------------------------------------------------------- changelists */
+.group-row.active-list .group-title {
+  font-weight: 600;
+}
+.cl-active {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  line-height: 14px;
+}
+.cl-dialog-note {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.cl-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+  margin-bottom: 8px;
+}
