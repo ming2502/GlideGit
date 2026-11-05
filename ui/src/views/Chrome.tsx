@@ -1,7 +1,7 @@
 // Toolbar (top) and status bar (bottom).
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { PullMode } from "../api";
+import type { AppInfo, PullMode } from "../api";
 import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
 import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, UndoIcon } from "../components/Icons";
@@ -168,7 +168,7 @@ function TaskProgress({ task }: { task: Task }) {
   );
 }
 
-export function StatusBar({ gitVersion }: { gitVersion: string }) {
+export function StatusBar({ info }: { info: AppInfo | null }) {
   const snapshot = useRepo((s) => s.snapshot);
   const tasks = useRepo((s) => s.tasks);
   const [showAll, setShowAll] = useState(false);
@@ -207,7 +207,13 @@ export function StatusBar({ gitVersion }: { gitVersion: string }) {
         </span>
       )}
       <span className="spacer" />
-      <span className="muted">git {gitVersion}</span>
+      <span
+        className="muted"
+        title={info ? `${info.gitPath}${info.gitBundled ? "\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit" : ""}` : undefined}
+      >
+        git {info?.gitVersion ?? ""}
+        {info?.gitBundled ? "（内置）" : ""}
+      </span>
       {head && (
         <button className="sb-branch" onClick={() => runAction("branches.popup")}>
           <BranchIcon />

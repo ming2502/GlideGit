@@ -485,7 +485,7 @@ export function installMock(): void {
         });
       }
       case "app_info":
-        return { version: "0.1.0", gitVersion: "2.55.0 (mock)", platform: "macos" };
+        return { version: "0.1.0", gitVersion: "2.55.0 (mock)", gitPath: "/usr/local/bin/git", gitBundled: false, platform: "macos" };
       case "fetch":
         return (async () => {
           // Demo: the first fetch walks through the HTTPS login prompts.

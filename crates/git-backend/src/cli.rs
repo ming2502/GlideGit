@@ -137,29 +137,18 @@ impl GitCli {
     /// Locate git: `GLIDEGIT_GIT` env var, then well-known install locations
     /// (GUI apps on macOS start with a minimal `PATH`), then `git` on `PATH`.
     pub fn discover() -> Result<Self> {
+        Self::discover_with(&[])
+    }
+
+    /// Like [`GitCli::discover`], trying `fallbacks` last: a git shipped
+    /// with the app (MinGit on Windows) is only used when the user has none,
+    /// so their own git, its version and its configuration take precedence.
+    pub fn discover_with(fallbacks: &[PathBuf]) -> Result<Self> {
         if let Some(exe) = std::env::var_os("GLIDEGIT_GIT") {
             return Self::with_executable(exe);
         }
-        // `cfg!()` (not `#[cfg]`) so every platform compiles and lints the same code.
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        if cfg!(target_os = "macos") {
-            candidates.extend(
-                ["/opt/homebrew/bin/git", "/usr/local/bin/git"]
-                    .iter()
-                    .map(PathBuf::from)
-                    .filter(|p| p.is_file()),
-            );
-        }
-        candidates.push(PathBuf::from("git"));
-        if cfg!(windows) {
-            candidates.push(PathBuf::from(r"C:\Program Files\Git\cmd\git.exe"));
-        }
-        if cfg!(target_os = "macos") {
-            candidates.push(PathBuf::from("/usr/bin/git"));
-        }
-
         let mut last_err = GitError::GitNotFound("git".into());
-        for c in candidates {
+        for c in candidates(fallbacks) {
             match Self::with_executable(c) {
                 Ok(cli) => return Ok(cli),
                 Err(e) => last_err = e,
@@ -471,6 +460,29 @@ fn clean_stderr(stderr: &str) -> String {
     }
 }
 
+/// Where to look for git, in order. Existing fallbacks come last.
+fn candidates(fallbacks: &[PathBuf]) -> Vec<PathBuf> {
+    // `cfg!()` (not `#[cfg]`) so every platform compiles and lints the same code.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if cfg!(target_os = "macos") {
+        candidates.extend(
+            ["/opt/homebrew/bin/git", "/usr/local/bin/git"]
+                .iter()
+                .map(PathBuf::from)
+                .filter(|p| p.is_file()),
+        );
+    }
+    candidates.push(PathBuf::from("git"));
+    if cfg!(windows) {
+        candidates.push(PathBuf::from(r"C:\Program Files\Git\cmd\git.exe"));
+    }
+    if cfg!(target_os = "macos") {
+        candidates.push(PathBuf::from("/usr/bin/git"));
+    }
+    candidates.extend(fallbacks.iter().filter(|p| p.is_file()).cloned());
+    candidates
+}
+
 /// Start a child process, one at a time.
 ///
 /// On macOS the standard library creates a child's pipes and only then marks
@@ -487,6 +499,24 @@ fn spawn(cmd: &mut Command) -> std::io::Result<std::process::Child> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn bundled_git_is_the_last_resort() {
+        let dir = std::env::temp_dir().join(format!("glidegit-fallback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let present = dir.join("git-present");
+        std::fs::write(&present, "").unwrap();
+        let missing = dir.join("git-missing");
+        let c = candidates(&[missing, present.clone()]);
+        // PATH's git comes before it; a fallback that does not exist is skipped.
+        assert_eq!(c.last(), Some(&present));
+        assert!(
+            c.iter().position(|p| p == Path::new("git")) < c.iter().position(|p| *p == present)
+        );
+        assert_eq!(c.iter().filter(|p| p.starts_with(&dir)).count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     use super::*;
 
     #[test]

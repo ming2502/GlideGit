@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-05）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）、M4-2（macOS 通用二进制与签名、公证流程）已完成，下一步是 M4-3（Windows 安装包与代码签名）。
+**当前进度（2026-11-05）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）、M4-2（macOS 通用二进制与签名、公证流程）、M4-3（Windows 安装包、代码签名流程、附带 MinGit）已完成，下一步是 M4-4（自动更新）。
 
 ## 里程碑总览
 
@@ -211,7 +211,12 @@
   - 签名与公证按 secrets 自动开启：有 Developer ID 证书时签名，再有 App Store Connect API 密钥时公证并装订 `.app`，DMG 也单独公证、装订。没有配置时做临时签名（ad-hoc），流程照样能跑通。构建后检查架构（`lipo`）、签名（`codesign --verify --deep --strict`），公证后再用 `spctl` 和 `stapler validate` 确认。配置方法写在 `docs/RELEASING.md`。
   - 本机验证（临时签名）：`.app` 39 MiB、DMG 13 MiB，包含 `x86_64 arm64`，签名校验通过且带 runtime 标志；在 Hardened Runtime 下应用能正常启动，作为 askpass 助手运行时能把提示转发给应用并输出答案。
   - 待办（需要账号）：实际的 Developer ID 签名和公证要等仓库配置了 Apple 证书和 API 密钥后才能验证。
-- [ ] M4-3 Windows NSIS/MSI 安装包与代码签名，附带 MinGit 作为后备
+- [x] M4-3 Windows NSIS/MSI 安装包与代码签名，附带 MinGit 作为后备
+  - 安装包：NSIS（按当前用户安装，不需要管理员权限，简体中文 / 英文）和 MSI（按机器安装，供批量部署）。Windows 专用配置放在 `crates/app/tauri.windows.conf.json`，只在 Windows 上打包时合并。
+  - MinGit：`scripts/fetch-mingit.mjs` 下载固定版本（2.56.0.4，64 位），核对 SHA-256 后解压到 `target/mingit`，作为资源装到安装目录的 `mingit\` 下。`GitCli::discover_with` 把它排在所有候选之后（`GLIDEGIT_GIT`、PATH、`C:\Program Files\Git`），只在用户没有装 git 时使用；状态栏会标注「（内置）」。构建脚本在没有下载 MinGit 时建一个空目录占位，开发和 CI 检查不受影响。
+  - 签名：配置 `WINDOWS_CERTIFICATE`（base64 编码的 `.pfx`）和密码后，工作流把证书导入证书存储，由 Tauri 调用 signtool 签名程序和两个安装包（SHA-256 + 时间戳）。2023 年后的证书私钥多在硬件中、不能导出，需要改用云签名服务，做法写在 `docs/RELEASING.md`。
+  - 发布工作流新增 Windows 任务：打包后静默安装 NSIS 包，检查程序已安装、自带的 git 能运行，签名时检查签名状态。两个任务都可能先到草稿 release，创建时容忍「已存在」。
+  - 待办（需要证书）：实际签名要等仓库配置了证书后验证。
 - [ ] M4-4 Tauri updater 自动更新
 - [ ] M4-5 设置页：git 路径、键位预设、主题、语言
 - [ ] M4-6 双平台截图回归测试

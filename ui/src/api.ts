@@ -30,6 +30,10 @@ import type { StashOptions } from "./bindings/StashOptions";
 export interface AppInfo {
   version: string;
   gitVersion: string;
+  /** Path of the git executable in use. */
+  gitPath: string;
+  /** The MinGit shipped with the app (Windows, when no git is installed). */
+  gitBundled: boolean;
   platform: string;
 }
 

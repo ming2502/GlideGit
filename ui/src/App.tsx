@@ -176,7 +176,7 @@ export function App() {
       ) : (
         <div className="main" />
       )}
-      <StatusBar gitVersion={info?.gitVersion ?? ""} />
+      <StatusBar info={info} />
       <BranchPopup />
       <UndoCenter />
       <CommandPalette />

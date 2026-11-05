@@ -8,6 +8,10 @@ name: Release
 # notarization turn on when the repository has the secrets listed in
 # docs/RELEASING.md; without them the app is ad-hoc signed, which runs on the
 # machine that downloads it only after the user allows it in System Settings.
+#
+# Windows: an NSIS installer (per user, no admin rights) and an MSI, both
+# shipping MinGit as a fallback git. Signed when a code signing certificate
+# is configured; otherwise SmartScreen warns on first run.
 
 on:
   push:
@@ -17,7 +21,10 @@ on:
       - .github/workflows/release.yml
       - crates/app/tauri.conf.json
       - crates/app/entitlements.plist
+      - crates/app/tauri.windows.conf.json
+      - crates/app/build.rs
       - scripts/check-version.mjs
+      - scripts/fetch-mingit.mjs
   workflow_dispatch:
 
 permissions:
@@ -121,6 +128,108 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg)
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing."
+          # Both jobs get here; whichever is second finds the release made.
+          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing." \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Fetch MinGit
+        run: node scripts/fetch-mingit.mjs
+
+      # The certificate goes into the user's store for signtool, and a small
+      # config override hands its thumbprint to the bundler.
+      - name: Configure signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Output "No certificate configured: the installers are not signed"
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          $config = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint } } } | ConvertTo-Json -Depth 4
+          $file = Join-Path $env:RUNNER_TEMP "signing.json"
+          Set-Content -Path $file -Value $config
+          "TAURI_SIGN_CONFIG=$file" >> $env:GITHUB_ENV
+          "SIGNED=1" >> $env:GITHUB_ENV
+          Write-Output "Signing with certificate $($cert.Subject)"
+
+      - name: Build installers
+        shell: bash
+        run: |
+          if [ -n "${TAURI_SIGN_CONFIG:-}" ]; then
+            pnpm tauri build --bundles nsis,msi --config "$TAURI_SIGN_CONFIG"
+          else
+            pnpm tauri build --bundles nsis,msi
+          fi
+
+      # Install the NSIS package silently and check the result runs, with
+      # the bundled git working on its own.
+      - name: Check the installers
+        shell: pwsh
+        run: |
+          $bundle = "target/release/bundle"
+          $nsis = Get-ChildItem "$bundle/nsis/*-setup.exe" | Select-Object -First 1
+          $msi = Get-ChildItem "$bundle/msi/*.msi" | Select-Object -First 1
+          "{0}  {1:N1} MiB" -f $nsis.Name, ($nsis.Length / 1MB)
+          "{0}  {1:N1} MiB" -f $msi.Name, ($msi.Length / 1MB)
+          $dir = Join-Path $env:RUNNER_TEMP "GlideGit-install"
+          Start-Process -FilePath $nsis.FullName -ArgumentList "/S", "/D=$dir" -Wait
+          if (-not (Test-Path "$dir/glidegit.exe")) { throw "glidegit.exe was not installed" }
+          & "$dir/mingit/cmd/git.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "the bundled git does not run" }
+          if ($env:SIGNED -eq "1") {
+            foreach ($f in @($nsis.FullName, $msi.FullName, "$dir/glidegit.exe")) {
+              $sig = Get-AuthenticodeSignature $f
+              "{0}: {1}" -f (Split-Path $f -Leaf), $sig.Status
+              if ($sig.Status -ne "Valid") { throw "bad signature on $f" }
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlideGit-windows-x64
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/msi/*.msi
+
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Both jobs get here; whichever is second finds the release made.
+          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing." \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" target/release/bundle/nsis/*-setup.exe target/release/bundle/msi/*.msi --clobber

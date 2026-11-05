@@ -84,6 +84,8 @@ struct SnapshotEvent<'a> {
 pub struct AppInfo {
     version: &'static str,
     git_version: String,
+    git_path: String,
+    git_bundled: bool,
     platform: &'static str,
 }
 
@@ -104,6 +106,8 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         git_version: state.git_version.clone(),
+        git_path: state.git_path.clone(),
+        git_bundled: state.git_bundled,
         platform: std::env::consts::OS,
     }
 }

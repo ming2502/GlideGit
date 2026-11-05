@@ -17,6 +17,9 @@ pub struct AppState {
     pub tasks: Arc<tasks::TaskRegistry>,
     pub askpass: Arc<askpass_bridge::AskpassBridge>,
     pub git_version: String,
+    pub git_path: String,
+    /// Using the MinGit shipped with the app (no other git was found).
+    pub git_bundled: bool,
 }
 
 fn main() {
@@ -31,7 +34,8 @@ fn main() {
         )
         .init();
 
-    let cli = match GitCli::discover() {
+    let bundled = bundled_git();
+    let cli = match GitCli::discover_with(bundled.as_slice()) {
         Ok(cli) => cli,
         Err(e) => {
             // TODO(M4-5): show a "git not found" setup screen instead of exiting.
@@ -39,10 +43,12 @@ fn main() {
             GitCli::with_executable("git").unwrap_or_else(|_| panic!("git not found: {e}"))
         }
     };
+    let git_bundled = bundled.iter().any(|b| b == cli.executable());
     tracing::info!(
-        "using git {} at {}",
+        "using git {} at {}{}",
         cli.version(),
-        cli.executable().display()
+        cli.executable().display(),
+        if git_bundled { " (bundled MinGit)" } else { "" }
     );
 
     // Credential prompts are answered in the UI via our own binary as askpass.
@@ -63,6 +69,8 @@ fn main() {
 
     let state = AppState {
         git_version: cli.version().to_string(),
+        git_path: cli.executable().display().to_string(),
+        git_bundled,
         manager: Arc::new(RepositoryManager::new(cli)),
         tasks: Arc::default(),
         askpass: bridge.clone(),
@@ -152,4 +160,15 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running GlideGit");
+}
+
+/// The git shipped with the app, if any: MinGit, installed next to the
+/// executable on Windows (see `tauri.windows.conf.json`). Used only when no
+/// other git is found.
+fn bundled_git() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    Some(dir.join("mingit").join("cmd").join("git.exe"))
 }
