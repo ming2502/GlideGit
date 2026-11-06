@@ -35,7 +35,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "copyright": "Copyright © 2026 GlideGit contributors",
+    "copyright": "Copyright © 2026 GlideGit contributors. Licensed under the Apache License 2.0.",
     "shortDescription": "A fast, keyboard-driven Git client",
     "macOS": {
       "minimumSystemVersion": "11.0",
@@ -47,7 +47,8 @@
           "height": 400
         }
       }
-    }
+    },
+    "license": "Apache-2.0"
   },
   "plugins": {
     "updater": {

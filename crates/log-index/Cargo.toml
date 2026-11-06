@@ -3,6 +3,7 @@ name = "glide-log-index"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [dependencies]
 glide-git-backend = { version = "1.0.0", path = "../git-backend" }

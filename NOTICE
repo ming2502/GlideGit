@@ -1,0 +1,10 @@
+GlideGit
+Copyright 2026 GlideGit contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Windows installer also ships MinGit, a minimal Git for Windows
+(https://github.com/git-for-windows/git), unmodified. MinGit is licensed
+under the GNU General Public License version 2; its license texts are
+installed with it in the `mingit` folder, and its source code is available
+from the Git for Windows project.

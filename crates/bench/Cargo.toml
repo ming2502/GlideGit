@@ -3,6 +3,7 @@ name = "glide-bench"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 publish = false
 description = "Performance benchmarks checked against the targets in docs/DESIGN.md §1.2"
 

@@ -105,3 +105,7 @@ cargo run --release -p glide-bench -- [--commits N] [--only log,open,branches,di
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |
 | 关闭仓库标签 | ⌘⌥W | Ctrl+Alt+W |
 | 变更列表：切换 / 勾选 | ↑↓ / 空格 | ↑↓ / Space |
+
+## 许可证
+
+GlideGit 以 [Apache License 2.0](LICENSE) 发布。Windows 安装包附带的 MinGit 按 GPLv2 原样分发，见 [NOTICE](NOTICE)。
