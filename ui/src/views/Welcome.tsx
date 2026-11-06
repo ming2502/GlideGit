@@ -1,9 +1,11 @@
 import { shortcutOf } from "../actions/registry";
+import type { AppInfo } from "../api";
 import { repoName } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { pickRepository } from "./Chrome";
 
-export function Welcome({ gitVersion }: { gitVersion: string }) {
+export function Welcome({ info }: { info: AppInfo | null }) {
+  const gitVersion = info?.gitVersion ?? "";
   const recent = useRepo((s) => s.recent);
   const openRepo = useRepo((s) => s.openRepo);
   return (
@@ -30,7 +32,16 @@ export function Welcome({ gitVersion }: { gitVersion: string }) {
           </svg>
         </div>
         <h1>GlideGit</h1>
-        <p className="muted">{gitVersion ? `git ${gitVersion}` : "正在检测 git…"}</p>
+        {info?.gitError ? (
+          <div className="welcome-git-error">
+            <p>{info.gitError}</p>
+            <button className="btn btn-sm" onClick={() => useRepo.getState().setSettings("git")}>
+              打开 Git 设置
+            </button>
+          </div>
+        ) : (
+          <p className="muted">{gitVersion ? `git ${gitVersion}` : "正在检测 git…"}</p>
+        )}
         <button className="btn btn-primary btn-lg" onClick={() => void pickRepository()}>
           打开仓库… <span className="kbd">{shortcutOf("repo.open")}</span>
         </button>

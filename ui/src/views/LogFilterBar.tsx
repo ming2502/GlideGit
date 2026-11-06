@@ -2,10 +2,15 @@
 // path filters, each in a small dropdown. Filters combine with AND.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
-import { useActions } from "../actions/registry";
+import { defineActions, useActions } from "../actions/registry";
 import type { AuthorCount } from "../bindings/AuthorCount";
 import type { LogFilter } from "../bindings/LogFilter";
 import { useRepo } from "../stores/repo";
+
+/** This view's actions (declared up front so the shortcut settings list them). */
+const LOG_FILTER_ACTIONS = defineActions([
+  { id: "log.find", title: "Find in Log", keys: ["mod+f"], keywords: "在 Log 中搜索 查找提交 search" },
+] as const);
 
 export const EMPTY_FILTER: LogFilter = { text: "", branches: [], authors: [], since: null, until: null, paths: [] };
 
@@ -263,10 +268,7 @@ export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange
 
   useActions([
     {
-      id: "log.find",
-      keywords: "在 Log 中搜索 查找提交 search",
-      title: "Find in Log",
-      keys: ["mod+f"],
+      ...LOG_FILTER_ACTIONS["log.find"],
       run: () => {
         input.current?.focus();
         input.current?.select();

@@ -105,6 +105,7 @@ export function Toolbar() {
           items={[
             { label: "打开仓库…", shortcut: shortcutOf("repo.open"), onClick: () => void pickRepository() },
             { label: "关闭当前标签", shortcut: shortcutOf("tabs.close"), onClick: () => void useRepo.getState().closeRepo() },
+            { label: "设置…", shortcut: shortcutOf("app.settings"), onClick: () => useRepo.getState().setSettings("appearance") },
             ...(recent.filter((r) => r !== root).length ? (["separator"] as const) : []),
             ...recent
               .filter((r) => r !== root)
@@ -207,13 +208,18 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
         </span>
       )}
       <span className="spacer" />
-      <span
-        className="muted"
-        title={info ? `${info.gitPath}${info.gitBundled ? "\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit" : ""}` : undefined}
+      <button
+        className={`sb-git ${info?.gitError ? "warn" : "muted"}`}
+        onClick={() => useRepo.getState().setSettings("git")}
+        title={
+          info?.gitError ??
+          (info ? `${info.gitPath}${info.gitBundled ? "\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit" : ""}\n点击打开 Git 设置` : undefined)
+        }
       >
-        git {info?.gitVersion ?? ""}
+        {info?.gitError && !info.gitVersion ? "⚠ 没有可用的 git" : `git ${info?.gitVersion ?? ""}`}
+        {info?.gitError && info.gitVersion ? " ⚠" : ""}
         {info?.gitBundled ? "（内置）" : ""}
-      </span>
+      </button>
       {head && (
         <button className="sb-branch" onClick={() => runAction("branches.popup")}>
           <BranchIcon />

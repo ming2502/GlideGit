@@ -37,6 +37,8 @@ cargo run --release -p glide-bench -- [--commits N] [--only log,open,branches,di
 
 ## 快捷键（IntelliJ 预设）
 
+以下为默认键位，可在「设置 → 快捷键」中修改。
+
 | 动作 | macOS | Windows |
 |---|---|---|
 | 聚焦提交信息 | ⌘K | Ctrl+K |
@@ -52,6 +54,7 @@ cargo run --release -p glide-bench -- [--commits N] [--only log,open,branches,di
 | 刷新 | ⌘R / F5 | Ctrl+R / F5 |
 | Rollback 选中文件 | ⌘⌥Z | Ctrl+Alt+Z |
 | 命令面板（Find Action） | ⌘⇧A 或双击 Shift | Ctrl+Shift+A 或双击 Shift |
+| 设置 | ⌘, / ⌘⌥S | Ctrl+, / Ctrl+Alt+S |
 | 撤销中心（撤销最近的操作） | ⌘⇧U | Ctrl+Shift+U |
 | 移动到另一个 Changelist | F6 | F6 |
 | 下一个 / 上一个仓库标签 | ⌘⇧] / ⌘⇧[ 或 ⌃Tab / ⌃⇧Tab | Ctrl+Shift+] / Ctrl+Shift+[ 或 Ctrl+Tab |

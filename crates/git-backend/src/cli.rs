@@ -157,6 +157,16 @@ impl GitCli {
         Err(last_err)
     }
 
+    /// A git that was not checked to run (when none was found at all): every
+    /// command fails with a clear error instead of the app not starting.
+    pub fn unchecked(exe: impl Into<PathBuf>) -> Self {
+        Self {
+            exe: exe.into(),
+            version: String::new(),
+            extra_env: Vec::new(),
+        }
+    }
+
     pub fn with_executable(exe: impl Into<PathBuf>) -> Result<Self> {
         let mut cli = Self {
             exe: exe.into(),

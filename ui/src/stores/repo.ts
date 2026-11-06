@@ -18,6 +18,8 @@ export interface Toast {
   detail?: string;
 }
 
+export type SettingsSection = "appearance" | "git" | "keymap" | "updates" | "about";
+
 export interface Task {
   id: number;
   title: string;
@@ -68,6 +70,8 @@ interface RepoState {
   undoCenter: boolean;
   /** The command palette is open. */
   palette: boolean;
+  /** The settings page, open at this section. */
+  settings: SettingsSection | null;
   /** Changelists of the active repository, once loaded. */
   changelists: { root: string; state: Changelists } | null;
   confirm: ConfirmRequest | null;
@@ -126,6 +130,7 @@ interface RepoState {
   setBranchPopup: (open: boolean) => void;
   setUndoCenter: (open: boolean) => void;
   setPalette: (open: boolean) => void;
+  setSettings: (section: SettingsSection | null) => void;
   loadChangelists: () => Promise<void>;
   /** Change the changelists (applied at once, then saved). */
   updateChangelists: (fn: (s: Changelists) => Changelists) => void;
@@ -166,6 +171,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   branchPopup: false,
   undoCenter: false,
   palette: false,
+  settings: null,
   changelists: null,
   confirm: null,
   pushDialog: false,
@@ -399,6 +405,7 @@ export const useRepo = create<RepoState>((set, get) => ({
   setBranchPopup: (branchPopup) => set({ branchPopup }),
   setUndoCenter: (undoCenter) => set({ undoCenter }),
   setPalette: (palette) => set({ palette }),
+  setSettings: (settings) => set({ settings }),
   async loadChangelists() {
     const root = get().root;
     if (!root) return;

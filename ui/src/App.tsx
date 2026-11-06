@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api, onSnapshot, onTaskProgress, type AppInfo } from "./api";
-import { installKeyHandler, useActions } from "./actions/registry";
+import { installKeyHandler, useActions, useKeymapVersion } from "./actions/registry";
 import { ConfirmDialog, Toasts } from "./components/Overlays";
 import { load, save } from "./lib/storage";
 import { useRepo } from "./stores/repo";
@@ -23,6 +23,7 @@ import { PushDialog } from "./views/PushDialog";
 import { TabBar } from "./views/TabBar";
 import { UndoCenter } from "./views/UndoCenter";
 import { UpdateNotice } from "./views/UpdateNotice";
+import { SettingsView } from "./views/SettingsView";
 import { CommandPalette, installDoubleShift } from "./views/CommandPalette";
 import { Welcome } from "./views/Welcome";
 
@@ -37,6 +38,8 @@ export function App() {
   const [restored, setRestored] = useState(false);
 
   useEffect(() => installKeyHandler(), []);
+  // Shortcut labels everywhere follow the user's changes.
+  useKeymapVersion();
   useEffect(() => installDoubleShift(() => useRepo.getState().setPalette(true)), []);
 
   useEffect(() => {
@@ -61,6 +64,13 @@ export function App() {
   }, []);
 
   useActions([
+    {
+      id: "app.settings",
+      title: "Settings…",
+      keywords: "设置 偏好设置 选项 主题 快捷键 preferences options",
+      keys: ["mod+comma", "mod+alt+s"],
+      run: () => useRepo.getState().setSettings("appearance"),
+    },
     {
       id: "palette.open",
       title: "Find Action…",
@@ -173,13 +183,14 @@ export function App() {
           </main>
         </>
       ) : restored ? (
-        <Welcome gitVersion={info?.gitVersion ?? ""} />
+        <Welcome info={info} />
       ) : (
         <div className="main" />
       )}
       <StatusBar info={info} />
       <BranchPopup />
       <UndoCenter />
+      <SettingsView info={info} />
       <CommandPalette />
       <PushDialog />
       <StashDialog />

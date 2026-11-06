@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useActions } from "../actions/registry";
+import { defineActions, useActions } from "../actions/registry";
 import type { FileTexts } from "../bindings/FileTexts";
 import type { CodeDiffHandle, DiffLayout, DiffStats, Staging } from "../components/CodeDiff";
 import { api } from "../api";
@@ -9,6 +9,12 @@ const CodeDiff = lazy(() => import("../components/CodeDiff").then((m) => ({ defa
 import { splitPath } from "../lib/format";
 import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
+
+/** This view's actions (declared up front so the shortcut settings list them). */
+const DIFF_ACTIONS = defineActions([
+  { id: "diff.next", title: "Next Change", keys: ["f7"], keywords: "下一处修改 下一个差异" },
+  { id: "diff.prev", title: "Previous Change", keys: ["shift+f7"], keywords: "上一处修改 上一个差异" },
+] as const);
 
 export function DiffView() {
   const diff = useRepo((s) => s.diff);
@@ -105,8 +111,8 @@ export function TextsDiff({
   const setHandle = useCallback((h: CodeDiffHandle | null) => (nav.current = h), []);
 
   useActions([
-    { id: "diff.next", keywords: "下一处修改 下一个差异", title: "Next Change", keys: ["f7"], run: () => nav.current?.go(1) },
-    { id: "diff.prev", keywords: "上一处修改 上一个差异", title: "Previous Change", keys: ["shift+f7"], run: () => nav.current?.go(-1) },
+    { ...DIFF_ACTIONS["diff.next"], run: () => nav.current?.go(1) },
+    { ...DIFF_ACTIONS["diff.prev"], run: () => nav.current?.go(-1) },
   ]);
 
   const { name, dir } = splitPath(path);

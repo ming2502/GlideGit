@@ -2,7 +2,7 @@
 // action, plus branches, changed files and recent repositories when typing.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { api } from "../api";
-import { formatKeys, listActions } from "../actions/registry";
+import { formatKeys, keysOf, listActions } from "../actions/registry";
 import { bestMatch, type Match } from "../lib/fuzzy";
 import { repoName, splitPath } from "../lib/format";
 import { load, save } from "../lib/storage";
@@ -35,7 +35,7 @@ function collect(): Item[] {
       key: `action:${a.id}`,
       title: a.title,
       kind: "",
-      shortcut: formatKeys(a.keys),
+      shortcut: formatKeys(keysOf(a)),
       aliases: [a.keywords ?? "", a.id],
       enabled: !a.enabled || a.enabled(),
       run: a.run,

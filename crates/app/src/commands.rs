@@ -9,12 +9,13 @@ use glide_core::{
 };
 use glide_git_backend::{
     Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide, ConflictTexts,
-    DiffMode, FileDiff, FileRevision, FileTexts, PullMode, PushPreview, RebaseStep, RepoOperation,
-    RepoSnapshot, ResetMode, ShelfEntry, StashEntry, StashOptions,
+    DiffMode, FileDiff, FileRevision, FileTexts, GitCli, PullMode, PushPreview, RebaseStep,
+    RepoOperation, RepoSnapshot, ResetMode, ShelfEntry, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::settings::{self, Settings};
 use crate::AppState;
 
 /// Event carrying a fresh snapshot whenever a repository changes.
@@ -92,6 +93,8 @@ pub struct AppInfo {
     git_version: String,
     git_path: String,
     git_bundled: bool,
+    /// The configured git does not run, or there is no git at all.
+    git_error: Option<String>,
     platform: &'static str,
 }
 
@@ -111,11 +114,40 @@ async fn session(state: &State<'_, AppState>, root: &str) -> CmdResult<Arc<RepoS
 pub fn app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
-        git_version: state.git_version.clone(),
-        git_path: state.git_path.clone(),
-        git_bundled: state.git_bundled,
+        git_version: state.git.version.clone(),
+        git_path: state.git.path.clone(),
+        git_bundled: state.git.bundled,
+        git_error: state.git.error.clone(),
         platform: std::env::consts::OS,
     }
+}
+
+fn config_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .map_err(|e| CmdError::new("settings", e.to_string()))
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> CmdResult<Settings> {
+    Ok(settings::load(&config_dir(&app)?))
+}
+
+/// Store the settings; they take effect on the next start.
+#[tauri::command]
+pub fn save_settings(app: AppHandle, settings: Settings) -> CmdResult<()> {
+    settings::save(&config_dir(&app)?, &settings)
+        .map_err(|e| CmdError::new("settings", e.to_string()))
+}
+
+/// Run `path --version`: the version when it is a working git.
+#[tauri::command]
+pub async fn check_git(path: String) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || GitCli::with_executable(path.trim()))
+        .await
+        .map_err(|e| CmdError::new("internal", e.to_string()))?
+        .map(|cli| cli.version().to_string())
+        .map_err(|e| CmdError::new("settings", e.to_string()))
 }
 
 #[tauri::command]

@@ -2600,7 +2600,8 @@ body.resizing-v * {
   position: fixed;
   right: 16px;
   bottom: 40px;
-  z-index: 55;
+  /* Below full-window overlays (45) and dialogs. */
+  z-index: 40;
   width: 340px;
   max-width: calc(100vw - 32px);
   padding: 12px 14px;
@@ -2646,4 +2647,152 @@ body.resizing-v * {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+/* ------------------------------------------------------------- settings */
+.mt-window.settings {
+  max-width: 920px;
+  max-height: 680px;
+}
+.st-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.st-nav {
+  width: 150px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--border-strong);
+}
+.st-nav button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+.st-nav button.on {
+  background: var(--selection);
+  font-weight: 600;
+}
+.st-page {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 22px 22px;
+}
+.st-page h3 {
+  margin: 14px 0 8px;
+  font-size: 13px;
+}
+.st-page h3:first-child {
+  margin-top: 0;
+}
+.st-page p {
+  margin: 6px 0;
+  line-height: 1.55;
+}
+.st-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.st-path {
+  flex: 1;
+  min-width: 0;
+}
+.st-note {
+  font-size: 12px;
+}
+.st-ok {
+  color: var(--k-added);
+}
+.st-error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+.st-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin: 8px 0;
+  border-radius: 6px;
+  background: var(--selection);
+}
+.km-list {
+  border-top: 1px solid var(--border-strong);
+}
+.km-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--border);
+}
+.km-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.km-keys {
+  min-width: 120px;
+  text-align: left;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.km-recording {
+  outline: 2px solid var(--accent);
+  color: var(--accent);
+}
+.km-actions {
+  width: 130px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.btn-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.sb-git {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.sb-git.muted {
+  color: var(--muted);
+}
+.sb-git.warn {
+  color: var(--danger);
+}
+.welcome-git-error {
+  color: var(--danger);
+  text-align: center;
 }

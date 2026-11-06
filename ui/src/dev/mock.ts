@@ -425,6 +425,7 @@ function recordOp(cmd: string, a: Record<string, unknown>) {
   ops.push({ id: ops.length + 1, time: Math.floor(Date.now() / 1000), kind, title, undo, blocked: null, undone: false });
 }
 
+let mockGitPath: string | null = null;
 let changelists = {
   lists: [
     { id: "default", name: "Changes" },
@@ -444,6 +445,16 @@ export function installMock(): void {
     const a = (args ?? {}) as Record<string, unknown>;
     recordOp(cmd, a);
     switch (cmd) {
+      case "get_settings":
+        return { gitPath: mockGitPath };
+      case "save_settings":
+        mockGitPath = (a.settings as { gitPath: string | null }).gitPath;
+        return null;
+      case "check_git":
+        return sleep(150).then(() => {
+          if (!String(a.path).endsWith("git")) throw { kind: "gitNotFound", message: `git executable not found or not runnable: ${a.path}` };
+          return "2.55.0";
+        });
       case "updates_enabled":
         return true;
       case "check_update":
@@ -505,7 +516,7 @@ export function installMock(): void {
         });
       }
       case "app_info":
-        return { version: "0.1.0", gitVersion: "2.55.0 (mock)", gitPath: "/usr/local/bin/git", gitBundled: false, platform: "macos" };
+        return { version: "0.1.0", gitVersion: "2.55.0 (mock)", gitPath: "/usr/local/bin/git", gitBundled: false, gitError: null, platform: "macos" };
       case "fetch":
         return (async () => {
           // Demo: the first fetch walks through the HTTPS login prompts.

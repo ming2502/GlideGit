@@ -1,9 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { applyTheme } from "./lib/theme";
 import "./styles.css";
 
 async function boot() {
+  applyTheme();
   // Outside Tauri (plain browser during `pnpm dev`) serve IPC from a fake repo.
   if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window && (window as any).__TAURI_INTERNALS__?.invoke)) {
     const { installMock } = await import("./dev/mock");

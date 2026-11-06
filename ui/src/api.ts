@@ -34,6 +34,8 @@ export interface AppInfo {
   gitPath: string;
   /** The MinGit shipped with the app (Windows, when no git is installed). */
   gitBundled: boolean;
+  /** The configured git does not run, or there is no git at all. */
+  gitError: string | null;
   platform: string;
 }
 
@@ -67,6 +69,9 @@ export const api = {
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
   installUpdate: (taskId: number) => invoke<void>("install_update", { taskId }),
   restartApp: () => invoke<void>("restart_app"),
+  getSettings: () => invoke<{ gitPath: string | null }>("get_settings"),
+  saveSettings: (settings: { gitPath: string | null }) => invoke<void>("save_settings", { settings }),
+  checkGit: (path: string) => invoke<string>("check_git", { path }),
   openRepo: (path: string) => invoke<RepoSnapshot>("open_repo", { path }),
   closeRepo: (root: string) => invoke<boolean>("close_repo", { root }),
   refresh: (root: string) => invoke<RepoSnapshot>("refresh", { root }),

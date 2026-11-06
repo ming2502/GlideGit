@@ -1,7 +1,8 @@
 // Single source of truth for every user-invokable action. Menus, buttons,
 // shortcuts and the command palette all resolve through here.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { isMac } from "../lib/format";
+import { load, save } from "../lib/storage";
 
 export interface Action {
   id: string;
@@ -18,8 +19,114 @@ export interface Action {
 
 const registry = new Map<string, Action>();
 
+/** Every action registered so far (also after its view unmounts), for the shortcut settings. */
+const catalog = new Map<string, { title: string; keys: string[]; hidden: boolean }>();
+
+// ---------------------------------------------------------------- keymap
+// The user's shortcut changes: action id → keys (an empty list unbinds).
+
+let overrides: Record<string, string[]> = load("keymap", {});
+let keymapVersion = 0;
+const keymapListeners = new Set<() => void>();
+
+/** The keys an action answers to now: the user's choice, else its default. */
+export function keysOf(a: { id: string; keys?: string[] }): string[] {
+  return overrides[a.id] ?? a.keys ?? [];
+}
+
+/** Set an action's shortcut (`null`: back to the default). */
+export function setShortcut(id: string, keys: string[] | null): void {
+  const next = { ...overrides };
+  if (keys == null) delete next[id];
+  else next[id] = keys;
+  overrides = next;
+  save("keymap", overrides);
+  keymapVersion++;
+  for (const l of keymapListeners) l();
+}
+
+export function resetAllShortcuts(): void {
+  overrides = {};
+  save("keymap", overrides);
+  keymapVersion++;
+  for (const l of keymapListeners) l();
+}
+
+export function isCustomized(id: string): boolean {
+  return id in overrides;
+}
+
+/** Re-render when shortcuts change (labels show them). */
+export function useKeymapVersion(): number {
+  return useSyncExternalStore(
+    (cb) => {
+      keymapListeners.add(cb);
+      return () => keymapListeners.delete(cb);
+    },
+    () => keymapVersion,
+  );
+}
+
+export interface CatalogEntry {
+  id: string;
+  title: string;
+  defaultKeys: string[];
+  keys: string[];
+}
+
+/** Every known action that can have a shortcut, by title. */
+export function shortcutCatalog(): CatalogEntry[] {
+  return [...catalog.entries()]
+    .filter(([id, c]) => !c.hidden || id === "palette.open")
+    .map(([id, c]) => ({ id, title: c.title, defaultKeys: c.keys, keys: keysOf({ id, keys: c.keys }) }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/** The action (other than `except`) already using this chord. */
+export function chordOwner(chord: string, except: string): string | null {
+  for (const [id, c] of catalog) {
+    if (id !== except && keysOf({ id, keys: c.keys }).includes(chord)) return id;
+  }
+  return null;
+}
+
+/** A chord string ("mod+shift+k") for a key press; null for a lone modifier. */
+export function chordFromEvent(e: KeyboardEvent | { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }): string | null {
+  const key = eventKey(e as KeyboardEvent);
+  if (/^(meta|control|alt|shift)(left|right)?$/.test(key) || key === "") return null;
+  const parts: string[] = [];
+  if (isMac ? e.metaKey : e.ctrlKey) parts.push("mod");
+  if (isMac && e.ctrlKey) parts.push("ctrl");
+  if (e.altKey) parts.push("alt");
+  if (e.shiftKey) parts.push("shift");
+  parts.push(key);
+  return parts.join("+");
+}
+
+/** What an action is, without how it runs: declared up front by views. */
+export type ActionInfo = Pick<Action, "id" | "title" | "keys" | "keywords" | "hidden">;
+
+/**
+ * Make actions known (for the shortcut settings) before their view mounts.
+ * Views call this at module load with the same descriptions they register.
+ */
+export function declareActions(actions: ActionInfo[]): void {
+  for (const a of actions) {
+    if (!catalog.has(a.id)) catalog.set(a.id, { title: a.title, keys: a.keys ?? [], hidden: !!a.hidden });
+  }
+}
+
+/** Index declared actions by id, declaring them at the same time. */
+export function defineActions<const T extends readonly ActionInfo[]>(actions: T): { [K in T[number]["id"]]: ActionInfo } {
+  declareActions([...actions]);
+  return Object.fromEntries(actions.map((a) => [a.id, a])) as { [K in T[number]["id"]]: ActionInfo };
+}
+
 export function registerActions(actions: Action[]): () => void {
-  for (const a of actions) registry.set(a.id, a);
+  for (const a of actions) {
+    registry.set(a.id, a);
+    catalog.set(a.id, { title: a.title, keys: a.keys ?? [], hidden: !!a.hidden });
+  }
   return () => {
     for (const a of actions) if (registry.get(a.id) === a) registry.delete(a.id);
   };
@@ -111,7 +218,7 @@ export function installKeyHandler(): () => void {
     if (document.querySelector('[aria-modal="true"]')) return;
     const inText = isTextInput(e.target);
     for (const a of registry.values()) {
-      for (const k of a.keys ?? []) {
+      for (const k of keysOf(a)) {
         const chord = parseChord(k);
         // Plain keys belong to the focused text field.
         if (inText && !chord.mod && !chord.ctrl && chord.key !== "escape") continue;
@@ -128,6 +235,17 @@ export function installKeyHandler(): () => void {
   return () => window.removeEventListener("keydown", handler, true);
 }
 
+const PUNCTUATION: Record<string, string> = {
+  comma: ",",
+  period: ".",
+  slash: "/",
+  backslash: "\\",
+  semicolon: ";",
+  quote: "'",
+  minus: "-",
+  equal: "=",
+};
+
 const MAC_SYMBOLS: Record<string, string> = {
   mod: "⌘",
   ctrl: "⌃",
@@ -139,6 +257,14 @@ const MAC_SYMBOLS: Record<string, string> = {
   enter: "↩",
   escape: "⎋",
   backquote: "`",
+  ...PUNCTUATION,
+  space: "Space",
+  backspace: "⌫",
+  delete: "⌦",
+  arrowup: "↑",
+  arrowdown: "↓",
+  arrowleft: "←",
+  arrowright: "→",
 };
 const WIN_NAMES: Record<string, string> = {
   mod: "Ctrl",
@@ -151,6 +277,14 @@ const WIN_NAMES: Record<string, string> = {
   enter: "Enter",
   escape: "Esc",
   backquote: "`",
+  ...PUNCTUATION,
+  space: "Space",
+  backspace: "Backspace",
+  delete: "Delete",
+  arrowup: "Up",
+  arrowdown: "Down",
+  arrowleft: "Left",
+  arrowright: "Right",
 };
 
 export function formatKeys(keys?: string[]): string {
@@ -162,5 +296,6 @@ export function formatKeys(keys?: string[]): string {
 }
 
 export function shortcutOf(id: string): string {
-  return formatKeys(registry.get(id)?.keys);
+  const a = registry.get(id);
+  return a ? formatKeys(keysOf(a)) : "";
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../api";
-import { useActions, shortcutOf } from "../actions/registry";
+import { defineActions, shortcutOf, useActions } from "../actions/registry";
 import type { ChangeKind } from "../bindings/ChangeKind";
 import type { FileChange } from "../bindings/FileChange";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -10,6 +10,17 @@ import { splitPath } from "../lib/format";
 import { addList, DEFAULT_ID, groupChanges, listOf, moveFiles, prune, removeList, renameList, setActive } from "../lib/changelists";
 import { isIncluded, useRepo } from "../stores/repo";
 import { MoveDialog, NameDialog, ShelveDialog } from "./ChangelistDialogs";
+
+/** This view's actions (declared up front so the shortcut settings list them). */
+const COMMIT_ACTIONS = defineActions([
+  { id: "commit.focus", title: "Commit…", keys: ["mod+k"], keywords: "提交 写提交信息" },
+  { id: "commit.run", title: "Commit", keys: ["mod+enter"], keywords: "提交" },
+  { id: "commit.runAndPush", title: "Commit and Push", keys: ["mod+alt+k"], keywords: "提交并推送" },
+  { id: "changes.rollback", title: "Rollback…", keys: ["mod+alt+z"], keywords: "回滚 还原 丢弃修改 revert discard" },
+  { id: "changes.moveToList", title: "Move to Another Changelist…", keys: ["f6"], keywords: "移动到另一个 Changelist 变更列表" },
+  { id: "changes.newList", title: "New Changelist…", keywords: "新建 Changelist 变更列表" },
+  { id: "changes.shelve", title: "Shelve Changes…", keywords: "搁置 shelve" },
+] as const);
 
 /** "conflicts", "unversioned", or "cl:<changelist id>". */
 type GroupId = string;
@@ -225,51 +236,35 @@ export function CommitPanel() {
 
   useActions([
     {
-      id: "commit.focus",
-      keywords: "提交 写提交信息",
-      title: "Commit…",
-      keys: ["mod+k"],
+      ...COMMIT_ACTIONS["commit.focus"],
       run: () => {
         useRepo.getState().setView("changes");
         msgRef.current?.focus();
       },
     },
-    { id: "commit.run", keywords: "提交", title: "Commit", keys: ["mod+enter"], run: () => void commit(false), enabled: () => canCommit },
+    { ...COMMIT_ACTIONS["commit.run"], run: () => void commit(false), enabled: () => canCommit },
     {
-      id: "commit.runAndPush",
-      keywords: "提交并推送",
-      title: "Commit and Push",
-      keys: ["mod+alt+k"],
+      ...COMMIT_ACTIONS["commit.runAndPush"],
       run: () => void commit(true),
       enabled: () => canCommit,
     },
     {
-      id: "changes.rollback",
-      keywords: "回滚 还原 丢弃修改 revert discard",
-      title: "Rollback…",
-      keys: ["mod+alt+z"],
+      ...COMMIT_ACTIONS["changes.rollback"],
       run: () => selectedChange && void rollback([selectedChange]),
       enabled: () => selectedChange != null,
     },
     {
-      id: "changes.moveToList",
-      keywords: "移动到另一个 Changelist 变更列表",
-      title: "Move to Another Changelist…",
-      keys: ["f6"],
+      ...COMMIT_ACTIONS["changes.moveToList"],
       run: () => selectedChange && startMove([selectedChange]),
       enabled: () => selectedChange != null && !selectedChange.conflicted && selectedChange.unstaged !== "untracked",
     },
     {
-      id: "changes.newList",
-      keywords: "新建 Changelist 变更列表",
-      title: "New Changelist…",
+      ...COMMIT_ACTIONS["changes.newList"],
       run: () => setDialog({ kind: "new", paths: [] }),
       enabled: () => cl != null,
     },
     {
-      id: "changes.shelve",
-      keywords: "搁置 shelve",
-      title: "Shelve Changes…",
+      ...COMMIT_ACTIONS["changes.shelve"],
       run: () => selectedChange && startShelve([selectedChange]),
       enabled: () => selectedChange != null && !selectedChange.conflicted,
     },
