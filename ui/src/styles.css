@@ -1140,6 +1140,8 @@ input {
   border-radius: 6px;
   background: var(--bg);
   cursor: default;
+  /* A fixed-height button cannot take a second line of text. */
+  white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
   background: var(--hover);
@@ -2741,6 +2743,9 @@ body.resizing-v * {
   align-items: center;
   gap: 8px;
   margin: 10px 0;
+}
+.st-row > .btn {
+  flex: none;
 }
 .st-path {
   flex: 1;
