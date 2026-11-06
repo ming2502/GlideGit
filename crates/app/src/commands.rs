@@ -29,6 +29,12 @@ pub struct CmdError {
     message: String,
 }
 
+impl CmdError {
+    pub fn new(kind: &'static str, message: String) -> Self {
+        Self { kind, message }
+    }
+}
+
 impl From<CoreError> for CmdError {
     fn from(e: CoreError) -> Self {
         Self {

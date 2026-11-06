@@ -12,6 +12,10 @@ name: Release
 # Windows: an NSIS installer (per user, no admin rights) and an MSI, both
 # shipping MinGit as a fallback git. Signed when a code signing certificate
 # is configured; otherwise SmartScreen warns on first run.
+#
+# Updates: with the updater key configured (variable UPDATER_PUBKEY, secrets
+# TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]), the builds also make signed update
+# packages, and a last job publishes `latest.json` for the in-app updater.
 
 on:
   push:
@@ -25,6 +29,8 @@ on:
       - crates/app/build.rs
       - scripts/check-version.mjs
       - scripts/fetch-mingit.mjs
+      - scripts/release-config.mjs
+      - scripts/updater-manifest.mjs
   workflow_dispatch:
 
 permissions:
@@ -92,8 +98,34 @@ jobs:
             echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
           fi
 
+      # Both halves of the updater key, or neither: an app that checks for
+      # updates nobody signs, or signed updates no app can verify, help no one.
+      - name: Configure updater
+        shell: bash
+        env:
+          PUBKEY: ${{ vars.UPDATER_PUBKEY }}
+          PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$PUBKEY" ] && [ -n "$PRIVATE_KEY" ]; then
+            {
+              echo "GLIDEGIT_UPDATER_PUBKEY=$PUBKEY"
+              echo "TAURI_SIGNING_PRIVATE_KEY=$PRIVATE_KEY"
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PRIVATE_KEY_PASSWORD"
+              echo "UPDATER=1"
+            } >> "$GITHUB_ENV"
+            echo "Updater: on"
+          elif [ -n "$PUBKEY$PRIVATE_KEY" ]; then
+            echo "::warning::Only half of the updater key is configured; building without the updater"
+          else
+            echo "Updater: off (no key configured)"
+          fi
+          echo "VERSION=$(node -p 'require("./crates/app/tauri.conf.json").version')" >> "$GITHUB_ENV"
+
       - name: Build universal app and DMG
-        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+        run: |
+          node scripts/release-config.mjs "$RUNNER_TEMP/release.json"
+          pnpm tauri build --target universal-apple-darwin --bundles app,dmg --config "$RUNNER_TEMP/release.json"
 
       - name: Check the bundle
         run: |
@@ -121,6 +153,21 @@ jobs:
         with:
           name: GlideGit-macos-universal
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Collect the update package
+        if: env.UPDATER == '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/updater"
+          src=target/universal-apple-darwin/release/bundle/macos/GlideGit.app.tar.gz
+          cp "$src" "$RUNNER_TEMP/updater/GlideGit_${VERSION}_universal.app.tar.gz"
+          cp "$src.sig" "$RUNNER_TEMP/updater/GlideGit_${VERSION}_universal.app.tar.gz.sig"
+          ls -la "$RUNNER_TEMP/updater"
+
+      - uses: actions/upload-artifact@v4
+        if: env.UPDATER == '1'
+        with:
+          name: updater-macos
+          path: ${{ runner.temp }}/updater/*
 
       - name: Draft release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -160,8 +207,8 @@ jobs:
       - name: Fetch MinGit
         run: node scripts/fetch-mingit.mjs
 
-      # The certificate goes into the user's store for signtool, and a small
-      # config override hands its thumbprint to the bundler.
+      # The certificate goes into the user's store for signtool; its
+      # thumbprint reaches the bundler through scripts/release-config.mjs.
       - name: Configure signing
         shell: pwsh
         env:
@@ -177,21 +224,39 @@ jobs:
           $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
           $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
           Remove-Item $pfx
-          $config = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint } } } | ConvertTo-Json -Depth 4
-          $file = Join-Path $env:RUNNER_TEMP "signing.json"
-          Set-Content -Path $file -Value $config
-          "TAURI_SIGN_CONFIG=$file" >> $env:GITHUB_ENV
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
           "SIGNED=1" >> $env:GITHUB_ENV
           Write-Output "Signing with certificate $($cert.Subject)"
+
+      # Both halves of the updater key, or neither: an app that checks for
+      # updates nobody signs, or signed updates no app can verify, help no one.
+      - name: Configure updater
+        shell: bash
+        env:
+          PUBKEY: ${{ vars.UPDATER_PUBKEY }}
+          PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$PUBKEY" ] && [ -n "$PRIVATE_KEY" ]; then
+            {
+              echo "GLIDEGIT_UPDATER_PUBKEY=$PUBKEY"
+              echo "TAURI_SIGNING_PRIVATE_KEY=$PRIVATE_KEY"
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PRIVATE_KEY_PASSWORD"
+              echo "UPDATER=1"
+            } >> "$GITHUB_ENV"
+            echo "Updater: on"
+          elif [ -n "$PUBKEY$PRIVATE_KEY" ]; then
+            echo "::warning::Only half of the updater key is configured; building without the updater"
+          else
+            echo "Updater: off (no key configured)"
+          fi
+          echo "VERSION=$(node -p 'require("./crates/app/tauri.conf.json").version')" >> "$GITHUB_ENV"
 
       - name: Build installers
         shell: bash
         run: |
-          if [ -n "${TAURI_SIGN_CONFIG:-}" ]; then
-            pnpm tauri build --bundles nsis,msi --config "$TAURI_SIGN_CONFIG"
-          else
-            pnpm tauri build --bundles nsis,msi
-          fi
+          node scripts/release-config.mjs "$RUNNER_TEMP/release.json"
+          pnpm tauri build --bundles nsis,msi --config "$RUNNER_TEMP/release.json"
 
       # Install the NSIS package silently and check the result runs, with
       # the bundled git working on its own.
@@ -223,6 +288,22 @@ jobs:
             target/release/bundle/nsis/*-setup.exe
             target/release/bundle/msi/*.msi
 
+      # The NSIS installer doubles as the update package; the updater runs it
+      # in passive mode.
+      - name: Collect the update package
+        if: env.UPDATER == '1'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/updater"
+          cp target/release/bundle/nsis/*-setup.exe target/release/bundle/nsis/*-setup.exe.sig "$RUNNER_TEMP/updater/"
+          ls -la "$RUNNER_TEMP/updater"
+
+      - uses: actions/upload-artifact@v4
+        if: env.UPDATER == '1'
+        with:
+          name: updater-windows
+          path: ${{ runner.temp }}/updater/*
+
       - name: Draft release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -233,3 +314,36 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing." \
             || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" target/release/bundle/nsis/*-setup.exe target/release/bundle/msi/*.msi --clobber
+
+  # `latest.json` for the in-app updater, on the draft release. It takes
+  # effect once the release is published (the updater reads the latest
+  # published release). Notes: the annotated tag's message, if any.
+  updater-manifest:
+    needs: [macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.UPDATER_PUBKEY != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: updater-*
+          merge-multiple: true
+          path: updater
+
+      - name: Write latest.json
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git fetch --quiet origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents:subject)%0a%0a%(contents:body)' > notes.md
+          fi
+          node scripts/updater-manifest.mjs "$version" updater notes.md > updater/latest.json
+          cat updater/latest.json
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" updater/latest.json "updater/GlideGit_${version}_universal.app.tar.gz" --clobber

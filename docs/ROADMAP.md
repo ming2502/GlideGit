@@ -2,7 +2,7 @@
 
 > 设计详见 [DESIGN.md](DESIGN.md)。每个任务完成后在此勾选，并在 PR 中引用任务编号。
 
-**当前进度（2026-11-05）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）、M4-2（macOS 通用二进制与签名、公证流程）、M4-3（Windows 安装包、代码签名流程、附带 MinGit）已完成，下一步是 M4-4（自动更新）。
+**当前进度（2026-11-06）**：M0、M1、M2、M3 已完成。M2 包括 Log 索引、图布局、Canvas 提交图、Log 过滤、提交详情、Log 右键菜单、CodeMirror diff、块级 / 行级 stage、Stash、读取性能与基准、快照缓存。M3 已完成：三方合并工具、冲突引导横幅、图形化交互式 rebase、Annotate、文件与选区历史、分支比较、OpLog 与撤销中心、Shelve 与多 Changelist、命令面板。M4 进行中：M4-1（性能基准接入 CI）、M4-2（macOS 通用二进制与签名、公证流程）、M4-3（Windows 安装包、代码签名流程、附带 MinGit）、M4-4（自动更新）已完成，下一步是 M4-5（设置页）。
 
 ## 里程碑总览
 
@@ -217,7 +217,12 @@
   - 签名：配置 `WINDOWS_CERTIFICATE`（base64 编码的 `.pfx`）和密码后，工作流把证书导入证书存储，由 Tauri 调用 signtool 签名程序和两个安装包（SHA-256 + 时间戳）。2023 年后的证书私钥多在硬件中、不能导出，需要改用云签名服务，做法写在 `docs/RELEASING.md`。
   - 发布工作流新增 Windows 任务：打包后静默安装 NSIS 包，检查程序已安装、自带的 git 能运行，签名时检查签名状态。两个任务都可能先到草稿 release，创建时容忍「已存在」。
   - 待办（需要证书）：实际签名要等仓库配置了证书后验证。
-- [ ] M4-4 Tauri updater 自动更新
+- [x] M4-4 Tauri updater 自动更新
+  - 应用：启动 5 秒后、之后每 6 小时检查 GitHub 最新已发布 release 中的 `latest.json`；有新版本时右下角提示（版本、更新说明、「安装并重启」「稍后」「跳过此版本」），命令面板有「Check for Updates…」。下载进度显示在状态栏（不属于任何仓库的应用级任务）。检查、下载、安装都在 Rust 端完成（`crates/app/src/updater.rs`），前端只调用命令，不需要额外开放插件权限。
+  - 安全：更新包用单独的更新签名密钥签名，公钥写在应用配置中，并开启 `requireSignedVersion`：签名记录了版本号，清单把旧版本的包标成新版本号时会被拒绝。
+  - 发布：配置了公钥变量和私钥 secrets 时，`scripts/release-config.mjs` 把公钥写入配置并开启更新包；macOS 用通用 `.app.tar.gz`，Windows 直接用 NSIS 安装程序（passive 模式安装）。最后的 `updater-manifest` 任务生成 `latest.json`（附注标签的说明作为更新说明）并上传到草稿 release。没有配置密钥时不带更新功能。
+  - 验证：新增 `cargo run -p glidegit --example updater_check -- <latest.json 地址> <公钥> [当前版本]`，用测试运行时加载更新插件，按应用的方式检查、下载并校验签名。本机用一次性密钥构建了 0.1.1 的更新包，经本地服务器测试了五种情况：0.1.0 发现更新并通过校验、已是最新时不提示、清单冒充 0.1.2 被拒绝、公钥不符被拒绝、包被篡改被拒绝。测试中发现打包器要求公钥写在配置里（不能只在编译时提供），据此调整了设计。
+  - 待办（需要密钥）：在仓库配置更新密钥后，用一次真实发布验证完整流程（包括 macOS 替换应用和 Windows 安装程序接管）。
 - [ ] M4-5 设置页：git 路径、键位预设、主题、语言
 - [ ] M4-6 双平台截图回归测试
 - [ ] M4-7 v1.0 公测发布

@@ -22,6 +22,7 @@ import { OperationBanner } from "./views/OperationBanner";
 import { PushDialog } from "./views/PushDialog";
 import { TabBar } from "./views/TabBar";
 import { UndoCenter } from "./views/UndoCenter";
+import { UpdateNotice } from "./views/UpdateNotice";
 import { CommandPalette, installDoubleShift } from "./views/CommandPalette";
 import { Welcome } from "./views/Welcome";
 
@@ -206,6 +207,7 @@ export function App() {
       )}
       <ConfirmDialog />
       <AskpassDialog />
+      <UpdateNotice />
       <Toasts />
     </div>
   );

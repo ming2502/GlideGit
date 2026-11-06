@@ -140,7 +140,7 @@ function TaskProgress({ task }: { task: Task }) {
     <span className="sb-task">
       <span className="spinner" />
       <span className="sb-task-title">
-        {multi && <span className="muted">{repoName(task.repo)} · </span>}
+        {multi && task.repo && <span className="muted">{repoName(task.repo)} · </span>}
         {task.title}
       </span>
       {p && (

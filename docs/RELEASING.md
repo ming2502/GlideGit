@@ -2,7 +2,7 @@
 
 发布由 `.github/workflows/release.yml` 完成：推送 `vX.Y.Z` 标签后，构建安装包并上传到一个**草稿** release，确认无误后再手动发布。也可以在 Actions 页面手动运行这个工作流，此时只构建，安装包作为附件下载。
 
-目前包含 macOS（M4-2）和 Windows（M4-3），自动更新见 M4-4。
+包含 macOS（M4-2）、Windows（M4-3）和应用内自动更新（M4-4）。
 
 ## 发布步骤
 
@@ -11,10 +11,10 @@
    - `Cargo.toml` 的 `[workspace.package] version`
    - `package.json` 的 `version`
 2. 提交并推送，确认 CI 通过。
-3. 打标签并推送：
+3. 打标签并推送。用附注标签（`-a`）时，标签说明会作为应用内「更新说明」显示给用户；不写说明时显示 release 页面的链接：
 
    ```bash
-   git tag v0.2.0
+   git tag -a v0.2.0 -m "GlideGit 0.2.0" -m "- 新增：…" -m "- 修复：…"
    ```
 
    ```bash
@@ -22,6 +22,8 @@
    ```
 
 4. 等 Release 工作流完成，在 GitHub 的 Releases 页面打开草稿，补充发布说明，然后发布。
+
+草稿发布之后，已安装的 GlideGit 才会收到更新提示（更新程序只读取最新的**已发布** release）。
 
 草稿中会有三个文件：`GlideGit_X.Y.Z_universal.dmg`（macOS）、`GlideGit_X.Y.Z_x64-setup.exe`（Windows，NSIS）和 `GlideGit_X.Y.Z_x64_zh-CN.msi`（Windows，MSI）。
 
@@ -118,3 +120,42 @@
 ### 工作流的检查
 
 Windows 任务在打包后会静默安装 NSIS 安装包（`/S`），确认 `glidegit.exe` 已安装、自带的 `mingit\cmd\git.exe --version` 能运行，签名时再检查签名状态。
+
+## 自动更新
+
+GlideGit 启动约 5 秒后（之后每 6 小时）检查一次 GitHub 上最新已发布 release 中的 `latest.json`。有新版本时，右下角提示版本号和更新说明，可以「安装并重启」「稍后」或「跳过此版本」；命令面板中的「Check for Updates…」可以随时手动检查。下载进度显示在状态栏。macOS 上替换应用后重启；Windows 上以 passive 模式运行新版 NSIS 安装程序（显示进度、无需操作）。
+
+更新包用单独的**更新签名密钥**签名（与 Apple / Windows 的代码签名无关，免费、本地生成），应用内置公钥，只安装签名有效的包。签名中还记录了版本号，应用会拒绝「版本号与签名不符」的包，防止有人把旧版本的包冒充成新版本推给用户（`requireSignedVersion`）。
+
+### 一次性配置
+
+1. 生成密钥（在你自己的电脑上，设置一个密码）：
+
+   ```bash
+   pnpm tauri signer generate -w ~/.tauri/glidegit-updater.key
+   ```
+
+   会生成私钥 `glidegit-updater.key` 和公钥 `glidegit-updater.key.pub`。
+2. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中：
+   - **Variables** 页添加 `UPDATER_PUBKEY`：公钥文件的内容（公钥不是秘密，放在变量中便于查看）。
+   - **Secrets** 页添加 `TAURI_SIGNING_PRIVATE_KEY`：私钥文件的内容；`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：生成时设置的密码。
+3. **妥善备份私钥和密码**（例如放进密码管理器）。私钥一旦丢失，已经安装的版本就再也无法收到更新，只能让用户手动下载新版本。私钥不要提交到仓库，也不要发到聊天或 issue 里。
+
+公钥和私钥要么都配置，要么都不配置：只配置一半时工作流会给出警告，并按未启用更新来构建。
+
+### 工作流做了什么
+
+1. 构建时由 `scripts/release-config.mjs` 把公钥写入配置（`plugins.updater.pubkey`，应用从这里读取），并用私钥为更新包签名：macOS 是 `GlideGit.app.tar.gz`（通用二进制，两种芯片共用），Windows 直接使用 NSIS 安装程序。
+2. 两个平台都完成后，`updater-manifest` 任务用 `scripts/updater-manifest.mjs` 生成 `latest.json`（版本号、更新说明、各平台下载地址和签名），连同 macOS 的更新包一起上传到草稿 release。
+
+没有配置密钥时构建出的应用不带更新功能（命令面板中的「Check for Updates…」为灰色），开发版本和 fork 也是如此。
+
+### 发布后验证
+
+用和应用相同的方式检查已发布的 `latest.json`：下载本平台的更新包，校验签名和签名中的版本号：
+
+```bash
+cargo run -p glidegit --example updater_check -- https://github.com/ming2502/GlideGit/releases/latest/download/latest.json "$(cat ~/.tauri/glidegit-updater.key.pub)" 0.0.0
+```
+
+输出 `signature OK` 即表示用户可以正常更新。

@@ -2594,3 +2594,56 @@ body.resizing-v * {
   padding: 20px;
   text-align: center;
 }
+
+/* ------------------------------------------------------- update notice */
+.update-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 55;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: pop 120ms ease-out;
+}
+.un-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.un-title .muted {
+  font-size: 12px;
+}
+.un-link {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.un-notes {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+.un-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

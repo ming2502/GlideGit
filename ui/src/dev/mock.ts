@@ -444,6 +444,26 @@ export function installMock(): void {
     const a = (args ?? {}) as Record<string, unknown>;
     recordOp(cmd, a);
     switch (cmd) {
+      case "updates_enabled":
+        return true;
+      case "check_update":
+        return sleep(300).then(() => ({
+          version: "0.2.0",
+          currentVersion: "0.1.0",
+          notes: "## 新功能\n- 命令面板支持搜索分支和文件\n- Shelf 与多 Changelist\n\n## 修复\n- 大仓库首次打开 Log 更快",
+          date: "2026-11-20T08:00:00Z",
+        }));
+      case "install_update":
+        return (async () => {
+          for (let p = 0; p <= 100; p += 20) {
+            await emit("task-progress", { taskId: a.taskId, progress: { phase: "下载更新", percent: p, detail: `${(p * 0.13).toFixed(1)} MB / 13.0 MB` } });
+            await sleep(250);
+          }
+          return null;
+        })();
+      case "restart_app":
+        (window as unknown as { __restarted: boolean }).__restarted = true;
+        return null;
       case "changelists":
         return structuredClone(changelists);
       case "save_changelists":

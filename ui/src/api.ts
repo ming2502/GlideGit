@@ -37,6 +37,14 @@ export interface AppInfo {
   platform: string;
 }
 
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  /** Release notes (markdown). */
+  notes: string | null;
+  date: string | null;
+}
+
 export interface AppError {
   kind: string;
   message: string;
@@ -55,6 +63,10 @@ export function errorMessage(e: unknown): string {
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
+  updatesEnabled: () => invoke<boolean>("updates_enabled"),
+  checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
+  installUpdate: (taskId: number) => invoke<void>("install_update", { taskId }),
+  restartApp: () => invoke<void>("restart_app"),
   openRepo: (path: string) => invoke<RepoSnapshot>("open_repo", { path }),
   closeRepo: (root: string) => invoke<boolean>("close_repo", { root }),
   refresh: (root: string) => invoke<RepoSnapshot>("refresh", { root }),

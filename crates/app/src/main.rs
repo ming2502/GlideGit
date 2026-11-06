@@ -4,6 +4,7 @@
 mod askpass_bridge;
 mod commands;
 mod tasks;
+mod updater;
 
 use std::sync::Arc;
 
@@ -78,7 +79,9 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
+        .manage(updater::PendingUpdate::default())
         .setup(move |app| {
             match app.path().app_cache_dir() {
                 Ok(dir) => app.state::<AppState>().manager.set_cache_dir(dir),
@@ -97,6 +100,10 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            updater::updates_enabled,
+            updater::check_update,
+            updater::install_update,
+            updater::restart_app,
             commands::open_repo,
             commands::close_repo,
             commands::refresh,

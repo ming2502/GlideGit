@@ -102,6 +102,8 @@ interface RepoState {
   setIncluded: (changes: FileChange[], include: boolean) => Promise<void>;
   runTask: <T>(title: string, fn: (root: string) => Promise<T>, success?: string) => Promise<T | undefined>;
   /** Like runTask, but passes a task id for progress events and cancellation. */
+  /** A task not tied to a repository (e.g. downloading an update). */
+  runAppTask: <T>(title: string, fn: (taskId: number) => Promise<T>) => Promise<T | undefined>;
   runRemote: (
     title: string,
     fn: (root: string, taskId: number) => Promise<void>,
@@ -327,6 +329,19 @@ export const useRepo = create<RepoState>((set, get) => ({
       const r = await fn(root);
       if (success) get().toast({ kind: "success", title: success });
       return r;
+    } catch (e) {
+      get().toast({ kind: "error", title: failedTitle(title), detail: errorMessage(e) });
+      return undefined;
+    } finally {
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+    }
+  },
+
+  async runAppTask(title, fn) {
+    const id = ++seq;
+    set((s) => ({ tasks: [...s.tasks, { id, title, repo: "", startedAt: Date.now(), cancellable: false }] }));
+    try {
+      return await fn(id);
     } catch (e) {
       get().toast({ kind: "error", title: failedTitle(title), detail: errorMessage(e) });
       return undefined;
