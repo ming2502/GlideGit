@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "glide-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "glide-core",
  "glide-git-backend",
@@ -1172,7 +1172,7 @@ dependencies = [
 
 [[package]]
 name = "glide-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "glide-git-backend",
@@ -1189,7 +1189,7 @@ dependencies = [
 
 [[package]]
 name = "glide-git-backend"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libc",
  "serde",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "glide-log-index"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "glide-git-backend",
  "rusqlite",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "glidegit"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "glide-core",
  "glide-git-backend",

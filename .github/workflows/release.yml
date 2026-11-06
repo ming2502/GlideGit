@@ -1,8 +1,10 @@
 name: Release
 
-# A tag `vX.Y.Z` builds the installers and puts them on a draft GitHub
-# release. Running the workflow by hand, or changing the packaging on main,
-# only builds them (as artifacts), to catch packaging breakage early.
+# A tag `vX.Y.Z` builds the installers, uploads them to a draft GitHub release
+# with the CHANGELOG.md section as its notes, and publishes it once every
+# build has succeeded (a tag with a hyphen, `v1.1.0-beta.1`, is published as
+# a pre-release, which the in-app updater ignores). Running the workflow by
+# hand, or changing the packaging on main, only builds (as artifacts).
 #
 # macOS: a universal (Apple silicon + Intel) app and DMG. Signing and
 # notarization turn on when the repository has the secrets listed in
@@ -31,6 +33,7 @@ on:
       - scripts/fetch-mingit.mjs
       - scripts/release-config.mjs
       - scripts/updater-manifest.mjs
+      - scripts/changelog-section.mjs
   workflow_dispatch:
 
 permissions:
@@ -58,9 +61,11 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      - name: Version matches the tag
+      - name: Version matches the tag, changelog has it
         if: startsWith(github.ref, 'refs/tags/v')
-        run: node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+        run: |
+          node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+          node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > /dev/null
 
       # Secrets are only exported when they are set: an empty
       # APPLE_CERTIFICATE would make the bundler fail instead of skipping.
@@ -176,7 +181,8 @@ jobs:
         run: |
           dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           # Both jobs get here; whichever is second finds the release made.
-          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing." \
+          node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md" \
             || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
 
@@ -199,10 +205,12 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      - name: Version matches the tag
+      - name: Version matches the tag, changelog has it
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        run: node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+        run: |
+          node scripts/check-version.mjs "${GITHUB_REF_NAME#v}"
+          node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > /dev/null
 
       - name: Fetch MinGit
         run: node scripts/fetch-mingit.mjs
@@ -311,13 +319,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Both jobs get here; whichever is second finds the release made.
-          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes "Draft: fill in the release notes before publishing." \
+          node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --draft --title "GlideGit ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md" \
             || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" target/release/bundle/nsis/*-setup.exe target/release/bundle/msi/*.msi --clobber
 
   # `latest.json` for the in-app updater, on the draft release. It takes
   # effect once the release is published (the updater reads the latest
-  # published release). Notes: the annotated tag's message, if any.
+  # published release). Notes: the version's CHANGELOG.md section.
   updater-manifest:
     needs: [macos, windows]
     if: startsWith(github.ref, 'refs/tags/v') && vars.UPDATER_PUBKEY != ''
@@ -334,10 +343,7 @@ jobs:
       - name: Write latest.json
         run: |
           version="${GITHUB_REF_NAME#v}"
-          git fetch --quiet origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
-            git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents:subject)%0a%0a%(contents:body)' > notes.md
-          fi
+          node scripts/changelog-section.mjs "$version" > notes.md
           node scripts/updater-manifest.mjs "$version" updater notes.md > updater/latest.json
           cat updater/latest.json
 
@@ -347,3 +353,37 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           gh release upload "$GITHUB_REF_NAME" updater/latest.json "updater/GlideGit_${version}_universal.app.tar.gz" --clobber
+
+  # Publish the draft once everything is on it, updater manifest included;
+  # any failure stops here and leaves the draft unpublished.
+  publish:
+    needs: [macos, windows, updater-manifest]
+    if: startsWith(github.ref, 'refs/tags/v') && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the assets and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPDATER: ${{ vars.UPDATER_PUBKEY != '' }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # A release without the updater strands its users: later versions
+          # could never reach them. Leave the draft for a look instead.
+          if [ "$UPDATER" != true ]; then
+            echo "::error::the updater key is not configured (variable UPDATER_PUBKEY); not publishing"
+            exit 1
+          fi
+          assets=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          echo "$assets"
+          need=("GlideGit_${version}_universal.dmg" "GlideGit_${version}_x64-setup.exe" "GlideGit_${version}_x64_zh-CN.msi"
+                "latest.json" "GlideGit_${version}_universal.app.tar.gz")
+          for f in "${need[@]}"; do
+            grep -qxF "$f" <<< "$assets" || { echo "::error::missing asset $f"; exit 1; }
+          done
+          if [[ "$version" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          fi
+          gh release view "$GITHUB_REF_NAME" --json url,isDraft,isPrerelease

@@ -2,8 +2,51 @@
 
 跨平台（macOS / Windows）Git 图形客户端，交互体验对标 IntelliJ IDEA 的 Git 集成：快、就地操作、键盘优先。
 
+![Log 视图](docs/images/log.png)
+
+## 功能
+
+- **提交**：按 Changelist 分组的修改列表，勾选即暂存；并排 / 统一 diff，按块或按行暂存、丢弃；Amend、提交并推送、Rollback。
+- **Shelve 与 Stash**：把一部分修改搁置起来或存入 stash，之后取回。
+- **Log**：百万级提交的仓库也能秒开，提交图、过滤（文本、作者、日期、分支、路径）、提交详情；右键 cherry-pick、还原、重置、新建分支 / 标签。
+- **交互式 rebase**：图形化重排、squash、fixup、reword、drop、edit。
+- **冲突**：三方合并工具，进行中的合并 / rebase 有引导横幅。
+- **追溯**：Annotate、文件历史、选区历史、分支比较。
+- **远程**：Fetch、Pull、推送前预览、Force Push（with-lease），后台运行可取消；账号密码与 SSH 口令在应用内回答。
+- **撤销中心**：提交、切换分支、重置、回滚、搁置等操作都可以安全撤销。
+- **键盘优先**：IntelliJ IDEA 键位（可自定义），命令面板（⌘⇧A / Ctrl+Shift+A 或双击 Shift）。
+- **其他**：多仓库标签页、浅色 / 深色主题、应用内自动更新；Windows 安装包附带 MinGit，没装 git 也能用。
+
+完整列表见 [CHANGELOG.md](CHANGELOG.md)。
+
+![Changes 视图（深色主题）](docs/images/changes-dark.png)
+
+## 下载与安装
+
+从 [GitHub Releases](https://github.com/ming2502/GlideGit/releases/latest) 下载最新版本。之后的新版本会在应用内提示，一键更新。
+
+| 平台 | 文件 | 要求 |
+|---|---|---|
+| macOS（Apple 芯片与 Intel） | `GlideGit_<版本>_universal.dmg` | macOS 11 或更新；git（Xcode 命令行工具或 Homebrew 自带） |
+| Windows（64 位） | `GlideGit_<版本>_x64-setup.exe`（推荐，按当前用户安装，不需要管理员权限）或 `.msi`（按机器安装） | Windows 10 / 11；WebView2（没有时安装程序自动安装）；git 可选，没有时使用自带的 MinGit |
+
+目前的安装包还没有做 Apple / Windows 代码签名，第一次打开时系统会拦一下：
+
+- **macOS**：把 GlideGit 拖进「应用程序」后打开，系统提示「无法验证开发者」时，到「系统设置 → 隐私与安全性」，在下方找到 GlideGit，点「仍要打开」。也可以在终端执行：
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/GlideGit.app
+  ```
+
+- **Windows**：SmartScreen 提示「Windows 已保护你的电脑」时，点「更多信息」，再点「仍要运行」。
+
+只需要允许一次，之后的自动更新不会再提示。
+
+## 文档
+
 - 设计文档：[docs/DESIGN.md](docs/DESIGN.md)
 - 工作计划：[docs/ROADMAP.md](docs/ROADMAP.md)
+- 更新日志：[CHANGELOG.md](CHANGELOG.md)
 - 发布与签名：[docs/RELEASING.md](docs/RELEASING.md)
 - 测试：[docs/TESTING.md](docs/TESTING.md)
 

@@ -1,6 +1,6 @@
 # 发布 GlideGit
 
-发布由 `.github/workflows/release.yml` 完成：推送 `vX.Y.Z` 标签后，构建安装包并上传到一个**草稿** release，确认无误后再手动发布。也可以在 Actions 页面手动运行这个工作流，此时只构建，安装包作为附件下载。
+发布由 `.github/workflows/release.yml` 完成：推送 `vX.Y.Z` 标签后，构建两个平台的安装包和更新包，上传到草稿 release（说明取自 `CHANGELOG.md` 中这个版本的一节），全部成功后自动发布。也可以在 Actions 页面手动运行这个工作流，或在 main 上修改打包配置，此时只构建，安装包作为附件下载。
 
 包含 macOS（M4-2）、Windows（M4-3）和应用内自动更新（M4-4）。
 
@@ -8,24 +8,35 @@
 
 1. 统一版本号。以下三处必须一致，工作流会检查（`node scripts/check-version.mjs X.Y.Z`）：
    - `crates/app/tauri.conf.json` 的 `version`
-   - `Cargo.toml` 的 `[workspace.package] version`
+   - `Cargo.toml` 的 `[workspace.package] version`（以及各 crate 之间路径依赖的 `version`）
    - `package.json` 的 `version`
-2. 提交并推送，确认 CI 通过。
-3. 打标签并推送。用附注标签（`-a`）时，标签说明会作为应用内「更新说明」显示给用户；不写说明时显示 release 页面的链接：
+2. 在 `CHANGELOG.md` 中写好 `## [X.Y.Z] - 日期` 一节。它就是 GitHub release 的说明，也是用户在应用内看到的「更新说明」；没有这一节时工作流在构建前就会停下（`node scripts/changelog-section.mjs X.Y.Z` 可以预览）。
+3. 提交并推送，确认 CI 通过。
+4. 打标签并推送：
 
    ```bash
-   git tag -a v0.2.0 -m "GlideGit 0.2.0" -m "- 新增：…" -m "- 修复：…"
+   git tag -a vX.Y.Z -m "GlideGit X.Y.Z"
    ```
 
    ```bash
-   git push origin v0.2.0
+   git push origin vX.Y.Z
    ```
 
-4. 等 Release 工作流完成，在 GitHub 的 Releases 页面打开草稿，补充发布说明，然后发布。
+5. 等 Release 工作流完成。最后的 `publish` 任务确认草稿上的文件齐全后发布；任何一步失败都会留下草稿、不发布，修好后删除标签和草稿重新来过。
 
-草稿发布之后，已安装的 GlideGit 才会收到更新提示（更新程序只读取最新的**已发布** release）。
+发布后，已安装的 GlideGit 就会收到更新提示（更新程序只读取最新的**已发布** release）。带连字符的标签（如 `v1.1.0-beta.1`）发布为预发布版本，不会推送给自动更新。
 
-草稿中会有三个文件：`GlideGit_X.Y.Z_universal.dmg`（macOS）、`GlideGit_X.Y.Z_x64-setup.exe`（Windows，NSIS）和 `GlideGit_X.Y.Z_x64_zh-CN.msi`（Windows，MSI）。
+release 中的文件：
+
+| 文件 | 用途 |
+|---|---|
+| `GlideGit_X.Y.Z_universal.dmg` | macOS 安装 |
+| `GlideGit_X.Y.Z_x64-setup.exe` | Windows 安装（NSIS），也是 Windows 的更新包 |
+| `GlideGit_X.Y.Z_x64_zh-CN.msi` | Windows 安装（MSI，批量部署） |
+| `GlideGit_X.Y.Z_universal.app.tar.gz` | macOS 更新包 |
+| `latest.json` | 更新清单 |
+
+没有配置更新密钥时 `publish` 任务不会发布：没有更新功能的版本发出去之后，用户就再也收不到后续版本的自动更新。
 
 ## macOS 安装包
 
