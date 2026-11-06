@@ -3,6 +3,7 @@
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { RebaseAction } from "../bindings/RebaseAction";
 import type { RebaseStep } from "../bindings/RebaseStep";
+import { t } from "../i18n";
 
 export interface PlanRow {
   commit: CommitSummary;
@@ -48,11 +49,11 @@ export function preview(rows: PlanRow[]): ResultCommit[] {
 /** Why the plan cannot run, or null. */
 export function problem(rows: PlanRow[]): string | null {
   const oldestKept = [...rows].reverse().find((r) => r.action !== "drop");
-  if (!oldestKept) return "不能丢弃所有提交（如需这样做请使用重置）";
+  if (!oldestKept) return t("不能丢弃所有提交（如需这样做请使用重置）");
   if (oldestKept.action === "squash" || oldestKept.action === "fixup")
-    return "最早的提交前面没有可合并的提交，不能 squash / fixup";
+    return t("最早的提交前面没有可合并的提交，不能 squash / fixup");
   const empty = rows.find((r) => r.action === "reword" && !r.message?.trim());
-  if (empty) return `${empty.commit.oid.slice(0, 7)} 的新提交信息不能为空`;
+  if (empty) return t("{commit} 的新提交信息不能为空", { commit: empty.commit.oid.slice(0, 7) });
   return null;
 }
 

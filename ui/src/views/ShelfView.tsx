@@ -9,6 +9,7 @@ import { addList, findByName, moveFiles } from "../lib/changelists";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { CommitDetailsPane } from "./CommitDetails";
+import { t } from "../i18n";
 
 export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
   const root = useRepo((s) => s.root)!;
@@ -38,7 +39,7 @@ export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
       .commitDetails(root, e.oid)
       .then((d) => d.files.map((f) => f.path))
       .catch(() => [] as string[]);
-    const conflicts = await runTask(`取消搁置 ${e.name}`, (r) => api.unshelve(r, e.id, e.oid, e.name, keep));
+    const conflicts = await runTask(t("取消搁置 {name}", { name: e.name }), (r) => api.unshelve(r, e.id, e.oid, e.name, keep));
     if (conflicts === undefined) return;
     const st = useRepo.getState();
     if (e.changelist && files.length) {
@@ -52,28 +53,28 @@ export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
     if (conflicts)
       st.toast({
         kind: "info",
-        title: "取消搁置时有冲突",
-        detail: "Shelf 中的修改与当前代码冲突，已保留这条搁置记录。请在 Changes 视图中解决冲突。",
+        title: t("取消搁置时有冲突"),
+        detail: t("Shelf 中的修改与当前代码冲突，已保留这条搁置记录。请在 Changes 视图中解决冲突。"),
       });
-    else st.toast({ kind: "success", title: `已取消搁置：${e.name}`, detail: e.changelist ? `文件已放回 Changelist「${e.changelist}」` : undefined });
+    else st.toast({ kind: "success", title: t("已取消搁置：{name}", { name: e.name }), detail: e.changelist ? t("文件已放回 Changelist「{changelist}」", { changelist: e.changelist }) : undefined });
     reload();
   };
 
   const drop = async (e: ShelfEntry) => {
     const ok = await ask({
-      title: `删除搁置「${e.name}」？`,
-      message: "其中保存的修改将被删除（可在撤销中心恢复）。",
-      confirmLabel: "删除",
+      title: t("删除搁置「{name}」？", { name: e.name }),
+      message: t("其中保存的修改将被删除（可在撤销中心恢复）。"),
+      confirmLabel: t("删除"),
       danger: true,
     });
-    if (ok) void runTask(`删除搁置 ${e.name}`, (r) => api.dropShelf(r, e.id, e.oid, e.name), `已删除：${e.name}`).then(reload);
+    if (ok) void runTask(t("删除搁置 {name}", { name: e.name }), (r) => api.dropShelf(r, e.id, e.oid, e.name), t("已删除：{name}", { name: e.name })).then(reload);
   };
 
   const items = (e: ShelfEntry): (MenuItem | "separator")[] => [
-    { label: "取消搁置（Unshelve）", onClick: () => void unshelve(e, false) },
-    { label: "应用并保留在 Shelf", onClick: () => void unshelve(e, true) },
+    { label: t("取消搁置（Unshelve）"), onClick: () => void unshelve(e, false) },
+    { label: t("应用并保留在 Shelf"), onClick: () => void unshelve(e, true) },
     "separator",
-    { label: "删除…", danger: true, onClick: () => void drop(e) },
+    { label: t("删除…"), danger: true, onClick: () => void drop(e) },
   ];
 
   const onKey = (ev: KeyboardEvent<HTMLDivElement>) => {
@@ -92,16 +93,16 @@ export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
       <div className="stash-side">
         <div className="panel-header">
           {tabs}
-          <span className="muted">{list ? `${list.length} 个` : ""}</span>
+          <span className="muted">{list ? t("{count} 个", { count: list.length }) : ""}</span>
         </div>
         {list === null ? (
           <div className="empty">
-            <span className="spinner inline" /> 正在读取…
+            <span className="spinner inline" />{t("正在读取…")}
           </div>
         ) : list.length === 0 ? (
           <div className="empty">
-            Shelf 是空的
-            <div className="muted">在 Changes 中右键文件或 Changelist，选择「搁置」，把修改暂时放到一边</div>
+            {t("Shelf 是空的")}
+            <div className="muted">{t("在 Changes 中右键文件或 Changelist，选择「搁置」，把修改暂时放到一边")}</div>
           </div>
         ) : (
           <div className="stash-list" tabIndex={0} onKeyDown={onKey}>
@@ -130,13 +131,13 @@ export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
           <div className="stash-actions">
             <span className="spacer" />
             <button className="btn btn-sm" onClick={() => void drop(entry)}>
-              删除
+              {t("删除")}
             </button>
-            <button className="btn btn-sm" onClick={() => void unshelve(entry, true)} title="应用修改，同时保留这条搁置记录">
-              应用
+            <button className="btn btn-sm" onClick={() => void unshelve(entry, true)} title={t("应用修改，同时保留这条搁置记录")}>
+              {t("应用")}
             </button>
             <button className="btn btn-sm btn-primary" onClick={() => void unshelve(entry, false)}>
-              取消搁置
+              {t("取消搁置")}
             </button>
           </div>
         )}
@@ -145,7 +146,7 @@ export function ShelfPanel({ tabs }: { tabs: ReactNode }) {
         {entry ? (
           <CommitDetailsPane oid={entry.oid} refs={[]} onJump={() => {}} hideParents />
         ) : (
-          <div className="diff-empty">{list?.length ? "选择一条搁置记录查看修改" : ""}</div>
+          <div className="diff-empty">{list?.length ? t("选择一条搁置记录查看修改") : ""}</div>
         )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items(menu.e)} onClose={() => setMenu(null)} />}

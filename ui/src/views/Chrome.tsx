@@ -8,9 +8,10 @@ import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, Ref
 import { repoName } from "../lib/format";
 import { useRepo, type Task } from "../stores/repo";
 import { useOperationLog } from "./UndoCenter";
+import { t } from "../i18n";
 
 export async function pickRepository(): Promise<void> {
-  const dir = await open({ directory: true, multiple: false, title: "打开 Git 仓库" });
+  const dir = await open({ directory: true, multiple: false, title: t("打开 Git 仓库") });
   if (typeof dir === "string") await useRepo.getState().openRepo(dir);
 }
 
@@ -45,7 +46,7 @@ export function Toolbar() {
         <b>{repoName(root)}</b>
         <ChevronDown />
       </button>
-      <button className="tb-btn" onClick={() => runAction("branches.popup")} title={`分支 ${shortcutOf("branches.popup")}`}>
+      <button className="tb-btn" onClick={() => runAction("branches.popup")} title={t("分支 {shortcutOf}", { shortcutOf: shortcutOf("branches.popup") })}>
         <BranchIcon />
         <span>{head.branch ?? (head.oid ? head.oid.slice(0, 8) : "—")}</span>
         <ChevronDown />
@@ -84,17 +85,17 @@ export function Toolbar() {
         <PushIcon />
         {head.ahead > 0 && <span className="badge">{head.ahead}</span>}
       </button>
-      <button className="tb-icon" onClick={() => runAction("palette.open")} title={`查找操作 ${shortcutOf("palette.open")}（或双击 Shift）`}>
+      <button className="tb-icon" onClick={() => runAction("palette.open")} title={t("查找操作 {shortcutOf}（或双击 Shift）", { shortcutOf: shortcutOf("palette.open") })}>
         <SearchIcon />
       </button>
       <button
         className="tb-icon"
         onClick={() => runAction("git.undoCenter")}
-        title={`撤销中心 ${shortcutOf("git.undoCenter")}${lastUndoable ? `\n最近可撤销：${lastUndoable.title}` : ""}`}
+        title={t("撤销中心 {shortcut}{last}", { shortcut: shortcutOf("git.undoCenter"), last: lastUndoable ? t("\n最近可撤销：{title}", { title: lastUndoable.title }) : "" })}
       >
         <UndoIcon />
       </button>
-      <button className="tb-icon" onClick={() => runAction("repo.refresh")} title={`刷新 ${shortcutOf("repo.refresh")}`}>
+      <button className="tb-icon" onClick={() => runAction("repo.refresh")} title={t("刷新 {shortcutOf}", { shortcutOf: shortcutOf("repo.refresh") })}>
         <RefreshIcon />
       </button>
       {menu?.kind === "repo" && (
@@ -103,9 +104,9 @@ export function Toolbar() {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: "打开仓库…", shortcut: shortcutOf("repo.open"), onClick: () => void pickRepository() },
-            { label: "关闭当前标签", shortcut: shortcutOf("tabs.close"), onClick: () => void useRepo.getState().closeRepo() },
-            { label: "设置…", shortcut: shortcutOf("app.settings"), onClick: () => useRepo.getState().setSettings("appearance") },
+            { label: t("打开仓库…"), shortcut: shortcutOf("repo.open"), onClick: () => void pickRepository() },
+            { label: t("关闭当前标签"), shortcut: shortcutOf("tabs.close"), onClick: () => void useRepo.getState().closeRepo() },
+            { label: t("设置…"), shortcut: shortcutOf("app.settings"), onClick: () => useRepo.getState().setSettings("appearance") },
             ...(recent.filter((r) => r !== root).length ? (["separator"] as const) : []),
             ...recent
               .filter((r) => r !== root)
@@ -159,10 +160,10 @@ function TaskProgress({ task }: { task: Task }) {
         <button
           className="sb-cancel"
           disabled={task.cancelling}
-          title={task.cancelling ? "正在取消…" : "取消"}
+          title={task.cancelling ? t("正在取消…") : t("取消")}
           onClick={() => cancel(task.id)}
         >
-          {task.cancelling ? "取消中…" : "✕"}
+          {task.cancelling ? t("取消中…") : "✕"}
         </button>
       )}
     </span>
@@ -182,7 +183,7 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
           <TaskProgress task={latest} />
           {tasks.length > 1 && (
             <button className="sb-more" onClick={() => setShowAll((v) => !v)}>
-              +{tasks.length - 1} 个任务
+              {t("+{count} 个任务", { count: tasks.length - 1 })}
             </button>
           )}
           {showAll && tasks.length > 1 && (
@@ -197,12 +198,12 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
         </>
       ) : (
         <span className="muted">
-          {snapshot ? `${snapshot.changes.length} 个变更` : ""}
+          {snapshot ? t("{count} 个变更", { count: snapshot.changes.length }) : ""}
           {/* Opened from the cache; the real status is on its way. */}
           {snapshot?.stale && (
-            <span className="sb-stale" title="显示的是上次保存的状态，正在后台刷新">
+            <span className="sb-stale" title={t("显示的是上次保存的状态，正在后台刷新")}>
               <span className="spinner inline" />
-              正在刷新…
+              {t("正在刷新…")}
             </span>
           )}
         </span>
@@ -213,12 +214,12 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
         onClick={() => useRepo.getState().setSettings("git")}
         title={
           info?.gitError ??
-          (info ? `${info.gitPath}${info.gitBundled ? "\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit" : ""}\n点击打开 Git 设置` : undefined)
+          (info ? t("{gitPath}{note}\n点击打开 Git 设置", { gitPath: info.gitPath, note: info.gitBundled ? t("\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit") : "" }) : undefined)
         }
       >
-        {info?.gitError && !info.gitVersion ? "⚠ 没有可用的 git" : `git ${info?.gitVersion ?? ""}`}
+        {info?.gitError && !info.gitVersion ? t("⚠ 没有可用的 git") : `git ${info?.gitVersion ?? ""}`}
         {info?.gitError && info.gitVersion ? " ⚠" : ""}
-        {info?.gitBundled ? "（内置）" : ""}
+        {info?.gitBundled ? t("（内置）") : ""}
       </button>
       {head && (
         <button className="sb-branch" onClick={() => runAction("branches.popup")}>

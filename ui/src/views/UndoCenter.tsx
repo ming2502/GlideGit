@@ -6,6 +6,7 @@ import type { OpEntry } from "../bindings/OpEntry";
 import type { OpKind } from "../bindings/OpKind";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 const KIND_ICON: Record<OpKind, string> = {
   commit: "●",
@@ -51,12 +52,12 @@ export function useOperationLog(enabled = true): OpEntry[] {
 export async function undoOperation(op: OpEntry): Promise<void> {
   const { ask, runTask } = useRepo.getState();
   const ok = await ask({
-    title: `撤销「${op.title}」？`,
-    message: `将会：${op.undo}。\n撤销前会确认仓库仍处于这次操作之后的状态。`,
-    confirmLabel: "撤销",
+    title: t("撤销「{title}」？", { title: op.title }),
+    message: t("将会：{undo}。\n撤销前会确认仓库仍处于这次操作之后的状态。", { undo: op.undo }),
+    confirmLabel: t("撤销"),
   });
   if (!ok) return;
-  await runTask(`撤销 ${op.title}`, (r) => api.undoOperation(r, op.id), `已撤销：${op.title}`);
+  await runTask(t("撤销 {title}", { title: op.title }), (r) => api.undoOperation(r, op.id), t("已撤销：{title}", { title: op.title }));
 }
 
 export function UndoCenter() {
@@ -93,13 +94,13 @@ export function UndoCenter() {
 
   return (
     <div className="backdrop clear" onMouseDown={close}>
-      <div className="branch-popup undo-center" role="dialog" aria-modal aria-label="撤销中心" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="branch-popup undo-center" role="dialog" aria-modal aria-label={t("撤销中心")} onMouseDown={(e) => e.stopPropagation()}>
         <div className="uc-title">
-          <b>撤销中心</b>
-          <span className="muted">GlideGit 在这个仓库中执行过的操作</span>
+          <b>{t("撤销中心")}</b>
+          <span className="muted">{t("GlideGit 在这个仓库中执行过的操作")}</span>
         </div>
         <div className="bp-list uc-list" ref={listRef} tabIndex={0} onKeyDown={onKey}>
-          {ops.length === 0 && <div className="uc-empty muted">还没有记录的操作。提交、切换分支、重置、回滚等操作会出现在这里。</div>}
+          {ops.length === 0 && <div className="uc-empty muted">{t("还没有记录的操作。提交、切换分支、重置、回滚等操作会出现在这里。")}</div>}
           {ops.map((op, i) => (
             <div
               key={op.id}
@@ -114,18 +115,18 @@ export function UndoCenter() {
                   <span className="muted uc-time">{relativeTime(op.time)}</span>
                 </div>
                 <div className="uc-detail muted">
-                  {op.undone ? "已撤销" : op.undo ? `↶ ${op.undo}` : op.blocked}
+                  {op.undone ? t("已撤销") : op.undo ? `↶ ${op.undo}` : op.blocked}
                 </div>
               </div>
               {op.undo && !op.undone && (
                 <button className="btn btn-sm uc-undo" onClick={() => run(op)}>
-                  撤销
+                  {t("撤销")}
                 </button>
               )}
             </div>
           ))}
         </div>
-        <div className="bp-footer muted">↑↓ 选择 · 回车 撤销 · 撤销前会检查仓库没有被再次修改</div>
+        <div className="bp-footer muted">{t("↑↓ 选择 · 回车 撤销 · 撤销前会检查仓库没有被再次修改")}</div>
       </div>
     </div>
   );

@@ -1405,28 +1405,32 @@ impl Repo {
         };
         match self.operation() {
             Some(RepoOperation::Rebase) => (
-                format!(
-                    "变基目标 {}",
-                    describe("HEAD").unwrap_or_else(|| "HEAD".into())
-                ),
-                theirs_of("REBASE_HEAD").unwrap_or_else(|| "正在应用的提交".into()),
+                {
+                    let onto = describe("HEAD").unwrap_or_else(|| "HEAD".into());
+                    crate::tr!("变基目标 {onto}", "rebasing onto {onto}")
+                },
+                theirs_of("REBASE_HEAD")
+                    .unwrap_or_else(|| crate::tr!("正在应用的提交", "the commit being applied")),
             ),
             Some(RepoOperation::Merge) => (
                 head,
-                theirs_of("MERGE_HEAD").unwrap_or_else(|| "合并进来的分支".into()),
+                theirs_of("MERGE_HEAD")
+                    .unwrap_or_else(|| crate::tr!("合并进来的分支", "the branch merged in")),
             ),
             Some(RepoOperation::CherryPick) => (
                 head,
-                theirs_of("CHERRY_PICK_HEAD").unwrap_or_else(|| "cherry-pick 的提交".into()),
+                theirs_of("CHERRY_PICK_HEAD").unwrap_or_else(|| {
+                    crate::tr!("cherry-pick 的提交", "the cherry-picked commit")
+                }),
             ),
             Some(RepoOperation::Revert) => (
                 head,
                 theirs_of("REVERT_HEAD")
-                    .map(|s| format!("撤销 {s}"))
+                    .map(|s| crate::tr!("撤销 {s}", "revert of {s}"))
                     .unwrap_or_else(|| "revert".into()),
             ),
             // e.g. a conflicting `git stash apply`
-            None => (head, "他们的".into()),
+            None => (head, crate::tr!("他们的", "theirs")),
         }
     }
 

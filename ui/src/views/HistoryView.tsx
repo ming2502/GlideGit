@@ -8,9 +8,10 @@ import { ContextMenu } from "../components/ContextMenu";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { TextsDiff } from "./DiffView";
+import { t } from "../i18n";
 
 const PAGE = 500;
-const KIND: Record<string, string> = { added: "新增", deleted: "删除", renamed: "重命名", copied: "复制" };
+const KIND: Record<string, string> = { added: t("新增"), deleted: t("已删除"), renamed: t("重命名"), copied: t("复制") };
 
 export function HistoryView() {
   const target = useRepo((s) => s.history);
@@ -102,8 +103,8 @@ export function HistoryView() {
   };
 
   const title = target.range
-    ? `选区历史 ${target.path} 第 ${target.range[0]}–${target.range[1]} 行${target.rev ? `（@ ${target.rev.slice(0, 8)}）` : ""}`
-    : `文件历史 ${target.path}`;
+    ? t("选区历史 {path} 第 {from}–{to} 行{at}", { path: target.path, from: target.range[0], to: target.range[1], at: target.rev ? t("（@ {rev}）", { rev: target.rev.slice(0, 8) }) : "" })
+    : t("文件历史 {path}", { path: target.path });
 
   return (
     <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={title} onKeyDown={(e) => e.key === "Escape" && close()}>
@@ -112,23 +113,22 @@ export function HistoryView() {
           <b>{title}</b>
           {revs && (
             <span className="muted">
-              {revs.length}
-              {more ? "+" : ""} 个提交，{authors} 位作者
+              {t("{count}{more} 个提交，{authors} 位作者", { count: revs.length, more: more ? "+" : "", authors })}
             </span>
           )}
           <span className="spacer" />
           <button className="btn btn-sm" onClick={close}>
-            关闭
+            {t("关闭")}
           </button>
         </div>
         {error && !revs ? (
           <div className="diff-empty">{error}</div>
         ) : !revs ? (
           <div className="diff-empty">
-            <span className="spinner" /> 正在查找修改过{target.range ? "这些行" : "这个文件"}的提交…
+            <span className="spinner" />{" "}{t("正在查找修改过{what}的提交…", { what: target.range ? t("这些行") : t("这个文件") })}
           </div>
         ) : revs.length === 0 ? (
-          <div className="diff-empty">没有找到提交{target.range ? "（这些行可能还没有提交过）" : ""}</div>
+          <div className="diff-empty">{t("没有找到提交{note}", { note: target.range ? t("（这些行可能还没有提交过）") : "" })}</div>
         ) : (
           <div className="hv-body">
             <div className="hv-list" tabIndex={0} onKeyDown={onKey} ref={list}>
@@ -143,7 +143,7 @@ export function HistoryView() {
                     setSel(i);
                     setMenu({ x: e.clientX, y: e.clientY, rev: r });
                   }}
-                  title="双击或回车在 Log 中显示"
+                  title={t("双击或回车在 Log 中显示")}
                 >
                   <div className="hv-subject">{r.commit.subject}</div>
                   <div className="hv-meta muted">
@@ -157,7 +157,7 @@ export function HistoryView() {
               ))}
               {more && (
                 <button className="btn btn-sm hv-more" onClick={loadMore}>
-                  加载更多
+                  {t("加载更多")}
                 </button>
               )}
             </div>
@@ -167,7 +167,7 @@ export function HistoryView() {
                   path={current.path}
                   texts={texts && texts.path === current.path ? texts : null}
                   loading={loadingDiff}
-                  label={`${current.commit.parents[0]?.slice(0, 8) ?? "空"} ↔ ${current.commit.oid.slice(0, 8)}`}
+                  label={`${current.commit.parents[0]?.slice(0, 8) ?? t("空")} ↔ ${current.commit.oid.slice(0, 8)}`}
                 />
               )}
             </div>
@@ -180,9 +180,9 @@ export function HistoryView() {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: "在 Log 中显示", onClick: () => showInLog(menu.rev.commit.oid) },
+            { label: t("在 Log 中显示"), onClick: () => showInLog(menu.rev.commit.oid) },
             {
-              label: "注释此版本",
+              label: t("注释此版本"),
               disabled: menu.rev.kind === "deleted",
               onClick: () => {
                 setHistory(null);
@@ -190,7 +190,7 @@ export function HistoryView() {
               },
             },
             "separator",
-            { label: "复制提交 hash", onClick: () => void navigator.clipboard.writeText(menu.rev.commit.oid) },
+            { label: t("复制提交 hash"), onClick: () => void navigator.clipboard.writeText(menu.rev.commit.oid) },
           ]}
         />
       )}

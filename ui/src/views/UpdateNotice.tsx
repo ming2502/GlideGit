@@ -5,6 +5,7 @@ import { api, errorMessage, type UpdateInfo } from "../api";
 import { useActions } from "../actions/registry";
 import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 /** Wait this long after start-up before checking, so it never competes with opening a repository. */
 const FIRST_CHECK_DELAY = 5_000;
@@ -34,14 +35,14 @@ export function UpdateNotice() {
     try {
       const found = await api.checkUpdate();
       if (!found) {
-        if (manual) toast({ kind: "success", title: "已是最新版本" });
+        if (manual) toast({ kind: "success", title: t("已是最新版本") });
         return;
       }
       // A skipped version is only offered again when asked for.
       if (!manual && load<string | null>("skippedUpdate", null) === found.version) return;
       setUpdate(found);
     } catch (e) {
-      if (manual) toast({ kind: "error", title: "检查更新失败", detail: errorMessage(e) });
+      if (manual) toast({ kind: "error", title: t("检查更新失败"), detail: errorMessage(e) });
     }
   };
 
@@ -70,13 +71,13 @@ export function UpdateNotice() {
   const install = async () => {
     setBusy(true);
     const st = useRepo.getState();
-    const done = await st.runAppTask(`更新到 ${update.version}`, async (taskId) => {
+    const done = await st.runAppTask(t("更新到 {version}", { version: update.version }), async (taskId) => {
       await api.installUpdate(taskId);
       return true;
     });
     if (done) {
       // On Windows the installer has taken over by now; elsewhere restart into it.
-      await api.restartApp().catch((e) => st.toast({ kind: "error", title: "请手动重启 GlideGit", detail: errorMessage(e) }));
+      await api.restartApp().catch((e) => st.toast({ kind: "error", title: t("请手动重启 GlideGit"), detail: errorMessage(e) }));
     }
     setBusy(false);
   };
@@ -88,24 +89,24 @@ export function UpdateNotice() {
   return (
     <div className="update-notice" role="status">
       <div className="un-title">
-        <b>GlideGit {update.version} 可以更新了</b>
-        <span className="muted">当前 {update.currentVersion}</span>
+        <b>{t("GlideGit {version} 可以更新了", { version: update.version })}</b>
+        <span className="muted">{t("当前 {currentVersion}", { currentVersion: update.currentVersion })}</span>
       </div>
       {update.notes && (
         <button className="un-link" onClick={() => setNotesOpen((o) => !o)}>
-          {notesOpen ? "收起更新说明" : "查看更新说明"}
+          {notesOpen ? t("收起更新说明") : t("查看更新说明")}
         </button>
       )}
       {notesOpen && update.notes && <pre className="un-notes">{update.notes}</pre>}
       <div className="un-actions">
-        <button className="btn btn-sm" onClick={skip} disabled={busy} title="不再提示这个版本（仍可在命令面板中手动检查）">
-          跳过此版本
+        <button className="btn btn-sm" onClick={skip} disabled={busy} title={t("不再提示这个版本（仍可在命令面板中手动检查）")}>
+          {t("跳过此版本")}
         </button>
         <button className="btn btn-sm" onClick={() => setUpdate(null)} disabled={busy}>
-          稍后
+          {t("稍后")}
         </button>
         <button className="btn btn-sm btn-primary" onClick={() => void install()} disabled={busy}>
-          {busy ? "正在更新…" : "安装并重启"}
+          {busy ? t("正在更新…") : t("安装并重启")}
         </button>
       </div>
     </div>

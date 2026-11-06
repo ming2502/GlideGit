@@ -10,6 +10,7 @@
 
 use std::sync::Mutex;
 
+use glide_git_backend::tr;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -63,7 +64,13 @@ pub async fn check_update(
     pending: State<'_, PendingUpdate>,
 ) -> Result<Option<UpdateInfo>, CmdError> {
     if !has_pubkey(&app) {
-        return Err(CmdError::new("update", "这个版本没有启用自动更新".into()));
+        return Err(CmdError::new(
+            "update",
+            tr!(
+                "这个版本没有启用自动更新",
+                "This build has no automatic updates"
+            ),
+        ));
     }
     // For testing against a local server; the signature check still applies.
     let endpoint = std::env::var("GLIDEGIT_UPDATE_ENDPOINT").unwrap_or_else(|_| ENDPOINT.into());
@@ -93,7 +100,7 @@ pub async fn check_update(
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct DownloadProgress {
-    phase: &'static str,
+    phase: String,
     percent: Option<u8>,
     detail: Option<String>,
 }
@@ -118,7 +125,10 @@ pub async fn install_update(
     let Some(update) = pending.0.lock().unwrap().take() else {
         return Err(CmdError::new(
             "update",
-            "没有可安装的更新，请重新检查".into(),
+            tr!(
+                "没有可安装的更新，请重新检查",
+                "No update to install: check again"
+            ),
         ));
     };
     let _task = state.tasks.start(task_id);
@@ -140,7 +150,7 @@ pub async fn install_update(
                         ProgressEvent {
                             task_id,
                             progress: DownloadProgress {
-                                phase: "下载更新",
+                                phase: tr!("下载更新", "Downloading update"),
                                 percent,
                                 detail: Some(match total {
                                     Some(t) => format!("{} / {}", mb(received), mb(t)),
@@ -157,7 +167,7 @@ pub async fn install_update(
                     ProgressEvent {
                         task_id,
                         progress: DownloadProgress {
-                            phase: "安装更新",
+                            phase: tr!("安装更新", "Installing update"),
                             percent: None,
                             detail: None,
                         },

@@ -26,6 +26,7 @@ import { UpdateNotice } from "./views/UpdateNotice";
 import { SettingsView } from "./views/SettingsView";
 import { CommandPalette, installDoubleShift } from "./views/CommandPalette";
 import { Welcome } from "./views/Welcome";
+import { t } from "./i18n";
 
 export function App() {
   const root = useRepo((s) => s.root);
@@ -87,7 +88,7 @@ export function App() {
       enabled: () => !!useRepo.getState().root,
       run: () => {
         const st = useRepo.getState();
-        void st.runTask("刷新", async (r) => st.applySnapshot(r, await api.refresh(r)));
+        void st.runTask(t("刷新"), async (r) => st.applySnapshot(r, await api.refresh(r)));
       },
     },
     {
@@ -147,7 +148,7 @@ export function App() {
       keywords: "获取 抓取",
       title: "Fetch",
       enabled: () => !!useRepo.getState().root,
-      run: () => void useRepo.getState().runRemote("Fetch", (r, id) => api.fetch(r, id), "Fetch 完成"),
+      run: () => void useRepo.getState().runRemote("Fetch", (r, id) => api.fetch(r, id), t("Fetch 完成")),
     },
     {
       id: "git.pull",
@@ -157,7 +158,7 @@ export function App() {
       enabled: () => !!useRepo.getState().root,
       run: () => {
         const st = useRepo.getState();
-        void st.runRemote("Pull", (r, id) => api.pull(r, st.pullMode, id), "已更新到最新");
+        void st.runRemote("Pull", (r, id) => api.pull(r, st.pullMode, id), t("已更新到最新"));
       },
     },
     {

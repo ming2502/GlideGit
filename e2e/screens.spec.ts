@@ -5,21 +5,25 @@ import { expect, test, type Page } from "@playwright/test";
 /** Every run sees the same moment: relative times ("3 小时前") stay put. */
 const NOW = new Date("2026-11-06T09:00:00+08:00");
 
-async function start(page: Page, opts: { theme?: "light" | "dark" } = {}) {
+async function start(page: Page, opts: { theme?: "light" | "dark"; language?: "zh" | "en" } = {}) {
   await page.clock.setFixedTime(NOW);
-  await page.addInitScript((theme) => {
-    localStorage.clear();
-    // No update notice popping up in the middle of a screenshot.
-    localStorage.setItem("autoCheckUpdates", "false");
-    if (theme) localStorage.setItem("theme", JSON.stringify(theme));
-  }, opts.theme ?? null);
+  await page.addInitScript(
+    ({ theme, language }) => {
+      localStorage.clear();
+      // No update notice popping up in the middle of a screenshot.
+      localStorage.setItem("autoCheckUpdates", "false");
+      if (theme) localStorage.setItem("theme", JSON.stringify(theme));
+      if (language) localStorage.setItem("language", JSON.stringify(language));
+    },
+    { theme: opts.theme ?? null, language: opts.language ?? null },
+  );
   await page.goto("/");
   await expect(page.locator(".welcome")).toBeVisible();
 }
 
 /** Open the first demo repository and wait for its fresh snapshot. */
 async function openRepo(page: Page) {
-  await page.getByRole("button", { name: /打开仓库/ }).first().click();
+  await page.getByRole("button", { name: /打开仓库|Open Repository/ }).first().click();
   await expect(page.locator(".file-row").first()).toBeVisible();
   await expect(page.locator(".sb-stale")).toHaveCount(0);
 }
@@ -29,7 +33,7 @@ const mod = "ControlOrMeta";
 /** Nothing still loading: no spinner, the commit index fully built. */
 async function settle(page: Page) {
   await expect(page.locator(".spinner:visible")).toHaveCount(0, { timeout: 15_000 });
-  await expect(page.getByText("正在建立提交索引")).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByText(/正在建立提交索引|Indexing commits/)).toHaveCount(0, { timeout: 15_000 });
 }
 
 test("welcome", async ({ page }) => {
@@ -123,4 +127,25 @@ test("settings, shortcuts", async ({ page }) => {
   await expect(page.locator(".km-row").first()).toBeVisible();
   await settle(page);
   await expect(page).toHaveScreenshot("settings-shortcuts.png");
+});
+
+test("changes and diff, English", async ({ page }) => {
+  await start(page, { language: "en" });
+  await openRepo(page);
+  await page.locator(".file-row", { hasText: "session.rs" }).click();
+  await expect(page.locator(".cm-mergeView, .cm-editor").first()).toBeVisible();
+  await settle(page);
+  await expect(page).toHaveScreenshot("changes-diff-en.png");
+});
+
+test("log with commit details, English", async ({ page }) => {
+  await start(page, { language: "en" });
+  await openRepo(page);
+  await page.keyboard.press(`${mod}+9`);
+  const rows = page.locator(".log-row:not(.pending)");
+  await expect(rows.nth(20)).toBeVisible();
+  await rows.nth(2).click();
+  await expect(page.locator(".cd-subject")).toBeVisible();
+  await settle(page);
+  await expect(page).toHaveScreenshot("log-en.png");
 });

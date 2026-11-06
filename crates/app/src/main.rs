@@ -49,17 +49,17 @@ fn main() {
                     version: cli.version().to_string(),
                     path: cli.executable().display().to_string(),
                     bundled: bundled.iter().any(|b| b == cli.executable()),
-                    error,
+                    problem: error,
                 },
                 None => settings::GitInfo {
                     version: String::new(),
                     path: String::new(),
                     bundled: false,
-                    error,
+                    problem: error,
                 },
             };
-            match &git.error {
-                Some(e) => tracing::warn!("{e}"),
+            match &git.problem {
+                Some(p) => tracing::warn!("{p:?}"),
                 None => tracing::info!(
                     "using git {} at {}{}",
                     git.version,
@@ -106,6 +106,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::set_language,
             commands::get_settings,
             commands::save_settings,
             commands::check_git,

@@ -8,9 +8,9 @@ use glide_core::{
     AuthorCount, CoreError, LogFilter, LogPage, LogStatus, OpEntry, OpKind, OpMeta, RepoSession,
 };
 use glide_git_backend::{
-    Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide, ConflictTexts,
-    DiffMode, FileDiff, FileRevision, FileTexts, GitCli, PullMode, PushPreview, RebaseStep,
-    RepoOperation, RepoSnapshot, ResetMode, ShelfEntry, StashEntry, StashOptions,
+    tr, Blame, BranchCompare, CommitDetails, CommitFile, CommitSummary, ConflictSide,
+    ConflictTexts, DiffMode, FileDiff, FileRevision, FileTexts, GitCli, PullMode, PushPreview,
+    RebaseStep, RepoOperation, RepoSnapshot, ResetMode, ShelfEntry, StashEntry, StashOptions,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -117,9 +117,15 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         git_version: state.git.version.clone(),
         git_path: state.git.path.clone(),
         git_bundled: state.git.bundled,
-        git_error: state.git.error.clone(),
+        git_error: state.git.problem.as_ref().map(|p| p.message()),
         platform: std::env::consts::OS,
     }
+}
+
+/// The interface language, for text the backend writes ("zh" or "en").
+#[tauri::command]
+pub fn set_language(language: String) {
+    glide_git_backend::i18n::set_english(language == "en");
 }
 
 fn config_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
@@ -240,8 +246,8 @@ pub async fn rollback(
     let s = session(&state, &root).await?;
     let all: Vec<String> = tracked.iter().chain(&untracked).cloned().collect();
     let title = match all.as_slice() {
-        [one] => format!("回滚 {one}"),
-        _ => format!("回滚 {} 个文件", all.len()),
+        [one] => tr!("回滚 {one}", "Roll back {one}"),
+        _ => tr!("回滚 {} 个文件", "Roll back {} files", all.len()),
     };
     let meta = OpMeta::new(OpKind::Rollback, title).backup_files(all);
     Ok(s.write_op(meta, move |r| r.rollback(&tracked, &untracked))
@@ -257,9 +263,15 @@ pub async fn commit(
 ) -> CmdResult<String> {
     let s = session(&state, &root).await?;
     let meta = if amend {
-        OpMeta::new(OpKind::Amend, format!("修改提交：{}", headline(&message)))
+        OpMeta::new(
+            OpKind::Amend,
+            tr!("修改提交：{}", "Amend: {}", headline(&message)),
+        )
     } else {
-        OpMeta::new(OpKind::Commit, format!("提交：{}", headline(&message)))
+        OpMeta::new(
+            OpKind::Commit,
+            tr!("提交：{}", "Commit: {}", headline(&message)),
+        )
     };
     Ok(s.write_op(meta, move |r| r.commit(&message, amend)).await?)
 }
@@ -407,7 +419,7 @@ pub async fn stash_push(
     let s = session(&state, &root).await?;
     let title = match options.message.as_deref().filter(|m| !m.trim().is_empty()) {
         Some(m) => format!("Stash：{}", headline(m)),
-        None => "Stash 本地修改".to_string(),
+        None => tr!("Stash 本地修改", "Stash local changes"),
     };
     let meta = OpMeta::new(OpKind::Stash, title);
     Ok(s.write_op(meta, move |r| r.stash_push(&options)).await?)
@@ -429,8 +441,11 @@ pub async fn stash_apply(
             .await?);
     }
     let message = stash_message(&s, &oid).await?;
-    let meta = OpMeta::new(OpKind::Stash, format!("取出 stash：{}", headline(&message)))
-        .dropped_stash(oid.clone(), message);
+    let meta = OpMeta::new(
+        OpKind::Stash,
+        tr!("取出 stash：{}", "Pop stash: {}", headline(&message)),
+    )
+    .dropped_stash(oid.clone(), message);
     Ok(s.write_op(meta, move |r| {
         r.stash_apply(index, &oid, pop, restore_index)
     })
@@ -446,8 +461,11 @@ pub async fn stash_drop(
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     let message = stash_message(&s, &oid).await?;
-    let meta = OpMeta::new(OpKind::Stash, format!("删除 stash：{}", headline(&message)))
-        .dropped_stash(oid.clone(), message);
+    let meta = OpMeta::new(
+        OpKind::Stash,
+        tr!("删除 stash：{}", "Drop stash: {}", headline(&message)),
+    )
+    .dropped_stash(oid.clone(), message);
     Ok(s.write_op(meta, move |r| r.stash_drop(index, &oid)).await?)
 }
 
@@ -481,8 +499,11 @@ pub async fn write_worktree_file(
     expected: String,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Discard, format!("丢弃 {path} 中的修改块"))
-        .backup_files(vec![path.clone()]);
+    let meta = OpMeta::new(
+        OpKind::Discard,
+        tr!("丢弃 {path} 中的修改块", "Discard a block in {path}"),
+    )
+    .backup_files(vec![path.clone()]);
     Ok(s.write_op(meta, move |r| {
         r.write_worktree_file(&path, &content, &expected)
     })
@@ -523,7 +544,7 @@ pub async fn checkout_branch(
     remote: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Checkout, format!("切换到 {name}"));
+    let meta = OpMeta::new(OpKind::Checkout, tr!("切换到 {name}", "Checkout {name}"));
     Ok(s.write_op(meta, move |r| r.checkout_branch(&name, remote))
         .await?)
 }
@@ -537,7 +558,11 @@ pub async fn checkout_detached(
     let s = session(&state, &root).await?;
     let meta = OpMeta::new(
         OpKind::Checkout,
-        format!("检出提交 {}", commit_label(&s, &oid).await),
+        tr!(
+            "检出提交 {}",
+            "Checkout commit {}",
+            commit_label(&s, &oid).await
+        ),
     );
     Ok(s.write_op(meta, move |r| r.checkout_detached(&oid)).await?)
 }
@@ -551,7 +576,10 @@ pub async fn create_tag(
     message: Option<String>,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Tag, format!("新建标签 {name}（{}）", short(&oid)));
+    let meta = OpMeta::new(
+        OpKind::Tag,
+        tr!("新建标签 {name}（{}）", "New tag {name} ({})", short(&oid)),
+    );
     Ok(
         s.write_op(meta, move |r| r.create_tag(&name, &oid, message.as_deref()))
             .await?,
@@ -573,7 +601,11 @@ pub async fn revert(state: State<'_, AppState>, root: String, oid: String) -> Cm
     let s = session(&state, &root).await?;
     let meta = OpMeta::new(
         OpKind::Revert,
-        format!("还原提交 {}", commit_label(&s, &oid).await),
+        tr!(
+            "还原提交 {}",
+            "Revert commit {}",
+            commit_label(&s, &oid).await
+        ),
     );
     Ok(s.write_op(meta, move |r| r.revert(&oid)).await?)
 }
@@ -592,7 +624,11 @@ pub async fn reset(
         ResetMode::Hard => "hard",
         ResetMode::Keep => "keep",
     };
-    let title = format!("重置到 {}（{mode_name}）", commit_label(&s, &oid).await);
+    let title = tr!(
+        "重置到 {}（{mode_name}）",
+        "Reset to {} ({mode_name})",
+        commit_label(&s, &oid).await
+    );
     let meta = match mode {
         ResetMode::Hard => OpMeta::new(OpKind::Reset, title).backup_all(),
         _ => OpMeta::new(OpKind::Reset, title).reset_back(mode),
@@ -686,7 +722,12 @@ pub async fn interactive_rebase(
     autostash: bool,
 ) -> CmdResult<bool> {
     let s = session(&state, &root).await?;
-    let title = format!("交互式变基 {} 个提交（自 {}）", steps.len(), short(&from));
+    let title = tr!(
+        "交互式变基 {} 个提交（自 {}）",
+        "Interactive rebase of {} commits (from {})",
+        steps.len(),
+        short(&from)
+    );
     let meta = OpMeta::new(OpKind::Rebase, title);
     Ok(s.write_op(meta, move |r| {
         r.interactive_rebase(&from, &steps, autostash)
@@ -704,11 +745,11 @@ pub async fn skip_operation(state: State<'_, AppState>, root: String) -> CmdResu
 pub async fn continue_operation(state: State<'_, AppState>, root: String) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     let what = match s.snapshot().and_then(|snap| snap.operation) {
-        Some(RepoOperation::Rebase) => "继续变基",
-        Some(RepoOperation::Merge) => "完成合并",
-        Some(RepoOperation::CherryPick) => "继续 cherry-pick",
-        Some(RepoOperation::Revert) => "继续还原",
-        None => "继续操作",
+        Some(RepoOperation::Rebase) => tr!("继续变基", "Continue rebase"),
+        Some(RepoOperation::Merge) => tr!("完成合并", "Finish merge"),
+        Some(RepoOperation::CherryPick) => tr!("继续 cherry-pick", "Continue cherry-pick"),
+        Some(RepoOperation::Revert) => tr!("继续还原", "Continue revert"),
+        None => tr!("继续操作", "Continue"),
     };
     let meta = OpMeta::new(OpKind::Continue, what);
     Ok(s.write_op(meta, |r| r.continue_operation()).await?)
@@ -724,9 +765,9 @@ pub async fn create_branch(
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     let title = if checkout {
-        format!("新建并切换到分支 {name}")
+        tr!("新建并切换到分支 {name}", "New branch {name}, checked out")
     } else {
-        format!("新建分支 {name}")
+        tr!("新建分支 {name}", "New branch {name}")
     };
     let meta = OpMeta::new(OpKind::Branch, title);
     Ok(s.write_op(meta, move |r| {
@@ -743,7 +784,10 @@ pub async fn delete_branch(
     force: bool,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Branch, format!("删除分支 {name}"));
+    let meta = OpMeta::new(
+        OpKind::Branch,
+        tr!("删除分支 {name}", "Delete branch {name}"),
+    );
     Ok(s.write_op(meta, move |r| r.delete_branch(&name, force))
         .await?)
 }
@@ -771,9 +815,12 @@ pub async fn pull(
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
     let (mode, title) = match mode {
-        PullModeArg::Merge => (PullMode::Merge, "拉取（合并）"),
-        PullModeArg::Rebase => (PullMode::Rebase, "拉取（变基）"),
-        PullModeArg::FfOnly => (PullMode::FastForwardOnly, "拉取（仅快进）"),
+        PullModeArg::Merge => (PullMode::Merge, tr!("拉取（合并）", "Pull (merge)")),
+        PullModeArg::Rebase => (PullMode::Rebase, tr!("拉取（变基）", "Pull (rebase)")),
+        PullModeArg::FfOnly => (
+            PullMode::FastForwardOnly,
+            tr!("拉取（仅快进）", "Pull (fast-forward only)"),
+        ),
     };
     let task = state.tasks.start(task_id);
     let net = task.net_options(&app);
@@ -797,9 +844,9 @@ pub async fn push(
         .and_then(|snap| snap.head.branch.clone())
         .unwrap_or_default();
     let title = if force_with_lease {
-        format!("强制推送 {branch}")
+        tr!("强制推送 {branch}", "Force push {branch}")
     } else {
-        format!("推送 {branch}")
+        tr!("推送 {branch}", "Push {branch}")
     };
     let meta = OpMeta::new(OpKind::Push, title);
     Ok(
@@ -845,8 +892,11 @@ pub async fn shelve(
     changelist: Option<String>,
 ) -> CmdResult<ShelfEntry> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Shelve, format!("搁置：{}", headline(&name)))
-        .backup_files(paths.clone());
+    let meta = OpMeta::new(
+        OpKind::Shelve,
+        tr!("搁置：{}", "Shelve: {}", headline(&name)),
+    )
+    .backup_files(paths.clone());
     Ok(s.write_op(meta, move |r| {
         r.shelve(&paths, &name, changelist.as_deref())
     })
@@ -866,8 +916,11 @@ pub async fn unshelve(
     let s = session(&state, &root).await?;
     let rev = oid.clone();
     let paths = s.read(move |r| r.shelf_paths(&rev)).await?;
-    let meta =
-        OpMeta::new(OpKind::Shelve, format!("取消搁置：{}", headline(&name))).backup_files(paths);
+    let meta = OpMeta::new(
+        OpKind::Shelve,
+        tr!("取消搁置：{}", "Unshelve: {}", headline(&name)),
+    )
+    .backup_files(paths);
     Ok(s.write_op(meta, move |r| r.unshelve(&id, &oid, keep))
         .await?)
 }
@@ -881,7 +934,10 @@ pub async fn drop_shelf(
     name: String,
 ) -> CmdResult<()> {
     let s = session(&state, &root).await?;
-    let meta = OpMeta::new(OpKind::Shelve, format!("删除搁置：{}", headline(&name)));
+    let meta = OpMeta::new(
+        OpKind::Shelve,
+        tr!("删除搁置：{}", "Delete shelf entry: {}", headline(&name)),
+    );
     Ok(s.write_op(meta, move |r| r.drop_shelf(&id, &oid)).await?)
 }
 

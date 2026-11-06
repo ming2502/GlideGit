@@ -21,7 +21,8 @@ import {
   type LineChunk,
 } from "../lib/staging";
 import { ContextMenu } from "./ContextMenu";
-import { tags as t } from "@lezer/highlight";
+import { tags } from "@lezer/highlight";
+import { t } from "../i18n";
 
 export type DiffLayout = "split" | "unified";
 
@@ -33,17 +34,17 @@ export interface DiffStats {
 
 /** Colours come from CSS variables, so light and dark themes just work. */
 const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.operatorKeyword, t.controlKeyword], color: "var(--syn-keyword)" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syn-string)" },
-  { tag: [t.number, t.bool, t.null, t.atom], color: "var(--syn-number)" },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--syn-comment)", fontStyle: "italic" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syn-function)" },
-  { tag: [t.typeName, t.className, t.namespace], color: "var(--syn-type)" },
-  { tag: [t.propertyName, t.attributeName], color: "var(--syn-property)" },
-  { tag: [t.tagName, t.macroName], color: "var(--syn-tag)" },
-  { tag: [t.meta, t.annotation], color: "var(--syn-meta)" },
-  { tag: t.heading, color: "var(--syn-keyword)", fontWeight: "bold" },
-  { tag: t.link, color: "var(--syn-string)", textDecoration: "underline" },
+  { tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword], color: "var(--syn-keyword)" },
+  { tag: [tags.string, tags.special(tags.string), tags.regexp], color: "var(--syn-string)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--syn-number)" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: "var(--syn-comment)", fontStyle: "italic" },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--syn-function)" },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--syn-type)" },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--syn-property)" },
+  { tag: [tags.tagName, tags.macroName], color: "var(--syn-tag)" },
+  { tag: [tags.meta, tags.annotation], color: "var(--syn-meta)" },
+  { tag: tags.heading, color: "var(--syn-keyword)", fontWeight: "bold" },
+  { tag: tags.link, color: "var(--syn-string)", textDecoration: "underline" },
 ]);
 
 const theme = EditorView.theme({
@@ -114,7 +115,7 @@ class BoxMarker extends GutterMarker {
   toDOM() {
     const el = document.createElement("span");
     el.className = `stage-box ${this.state === true ? "on" : this.state === "partial" ? "partial" : ""}`;
-    el.title = this.state === true ? "已暂存此块（点击取消）" : "暂存此块（右键更多）";
+    el.title = this.state === true ? t("已暂存此块（点击取消）") : t("暂存此块（右键更多）");
     return el;
   }
 }
@@ -129,7 +130,7 @@ class DotMarker extends GutterMarker {
   toDOM() {
     const el = document.createElement("span");
     el.className = `stage-dot ${this.on ? "on" : ""}`;
-    el.title = this.on ? "已暂存此行" : "暂存此行";
+    el.title = this.on ? t("已暂存此行") : t("暂存此行");
     return el;
   }
 }
@@ -258,15 +259,15 @@ export function CodeDiff({
     };
     const hit: GutterHit = (view, line, kind, e) => {
       // Boxes are keyed by line, dots by -line.
-      const t = targets.get(view)?.get(kind === "box" ? line : -line);
-      if (!t || !stage[t.k]) return false;
+      const target = targets.get(view)?.get(kind === "box" ? line : -line);
+      if (!target || !stage[target.k]) return false;
       e.preventDefault();
       if (e.type === "contextmenu") {
-        setMenu({ x: e.clientX, y: e.clientY, k: t.k });
-      } else if (kind === "box" || t.side == null) {
-        apply(withChunk(stage, t.k, chunkCheck(stage[t.k]) !== true));
+        setMenu({ x: e.clientX, y: e.clientY, k: target.k });
+      } else if (kind === "box" || target.side == null) {
+        apply(withChunk(stage, target.k, chunkCheck(stage[target.k]) !== true));
       } else {
-        apply(withLine(stage, t.k, t.side, t.i!));
+        apply(withLine(stage, target.k, target.side, target.i!));
       }
       return true;
     };
@@ -402,17 +403,17 @@ export function CodeDiff({
 
   return (
     <div className={`code-diff code-diff-${layout}`} ref={host}>
-      {error && <div className="diff-empty">无法显示差异：{error}</div>}
+      {error && <div className="diff-empty">{t("无法显示差异：{error}", { error })}</div>}
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: "暂存此块", disabled: ctl.current?.check(menu.k) === true, onClick: () => ctl.current?.chunk(menu.k, "stage") },
-            { label: "取消暂存此块", disabled: ctl.current?.check(menu.k) === false, onClick: () => ctl.current?.chunk(menu.k, "unstage") },
+            { label: t("暂存此块"), disabled: ctl.current?.check(menu.k) === true, onClick: () => ctl.current?.chunk(menu.k, "stage") },
+            { label: t("取消暂存此块"), disabled: ctl.current?.check(menu.k) === false, onClick: () => ctl.current?.chunk(menu.k, "unstage") },
             "separator",
-            { label: "丢弃此块（还原为 HEAD）…", danger: true, onClick: () => ctl.current?.chunk(menu.k, "discard") },
+            { label: t("丢弃此块（还原为 HEAD）…"), danger: true, onClick: () => ctl.current?.chunk(menu.k, "discard") },
           ]}
         />
       )}

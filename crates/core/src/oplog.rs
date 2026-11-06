@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use glide_git_backend::{GitError, RefsState, Repo, ResetMode};
+use glide_git_backend::{tr, GitError, RefsState, Repo, ResetMode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -250,12 +250,25 @@ pub fn plan(
     ctx: &Context,
 ) -> Result<(Vec<UndoStep>, String), String> {
     match meta.kind {
-        OpKind::Push => return Err("已推送到远程，无法在本地撤销".into()),
-        OpKind::Undo => return Err("撤销操作本身不能再撤销".into()),
+        OpKind::Push => {
+            return Err(tr!(
+                "已推送到远程，无法在本地撤销",
+                "Already pushed: it cannot be undone locally"
+            ))
+        }
+        OpKind::Undo => {
+            return Err(tr!(
+                "撤销操作本身不能再撤销",
+                "An undo cannot itself be undone"
+            ))
+        }
         _ => {}
     }
     if ctx.in_progress {
-        return Err("操作在中途停下了，可在顶部横幅中中止".into());
+        return Err(tr!(
+            "操作在中途停下了，可在顶部横幅中中止",
+            "It stopped half-way: abort it from the banner at the top"
+        ));
     }
     let mut steps = Vec::new();
     let mut what: Vec<String> = Vec::new();
@@ -271,8 +284,9 @@ pub fn plan(
             ctx.orig_head.clone().unwrap(),
             after.head_oid.clone().unwrap_or_default(),
         );
-        what.push(format!(
+        what.push(tr!(
             "{} 回到变基前的 {}",
+            "move {} back to {} from before the rebase",
             branch_name(after.head_ref.as_deref().unwrap()),
             short(&to)
         ));
@@ -288,9 +302,10 @@ pub fn plan(
             expect_head: after.head_oid.clone(),
         });
         what.push(match &before.head_ref {
-            Some(r) => format!("切换回 {}", branch_name(r)),
-            None => format!(
+            Some(r) => tr!("切换回 {}", "switch back to {}", branch_name(r)),
+            None => tr!(
                 "回到 {}",
+                "go back to {}",
                 before.head_oid.as_deref().map(short).unwrap_or("HEAD")
             ),
         });
@@ -310,13 +325,24 @@ pub fn plan(
                     _ => UndoStep::ResetKeep { expect_head, to },
                 });
                 what.push(match meta.kind {
-                    OpKind::Amend => "恢复修改前的提交，修改保留在暂存区".into(),
-                    OpKind::Commit => "撤销提交，修改保留在暂存区".into(),
-                    _ => format!("回到操作前的提交 {}", short(b)),
+                    OpKind::Amend => tr!(
+                        "恢复修改前的提交，修改保留在暂存区",
+                        "bring back the commit before the amend, with the changes staged"
+                    ),
+                    OpKind::Commit => tr!(
+                        "撤销提交，修改保留在暂存区",
+                        "undo the commit, keeping the changes staged"
+                    ),
+                    _ => tr!("回到操作前的提交 {}", "go back to {}", short(b)),
                 });
             }
-            (None, Some(_)) => return Err("这是仓库的第一个提交，无法撤销".into()),
-            _ => return Err("HEAD 已无法解析".into()),
+            (None, Some(_)) => {
+                return Err(tr!(
+                    "这是仓库的第一个提交，无法撤销",
+                    "It made the repository's first commit and cannot be undone"
+                ))
+            }
+            _ => return Err(tr!("HEAD 已无法解析", "HEAD cannot be resolved any more")),
         }
     }
 
@@ -331,10 +357,11 @@ pub fn plan(
             continue;
         }
         let label = if name.starts_with(glide_git_backend::SHELF_REFS) {
-            "搁置记录"
+            tr!("搁置记录", "the shelf entry")
         } else {
             name.trim_start_matches("refs/heads/")
                 .trim_start_matches("refs/tags/")
+                .to_string()
         };
         match (before.refs.get(name), after.refs.get(name)) {
             (None, Some(a)) => {
@@ -342,7 +369,7 @@ pub fn plan(
                     name: name.clone(),
                     expect: a.clone(),
                 });
-                what.push(format!("删除 {label}"));
+                what.push(tr!("删除 {label}", "delete {label}"));
             }
             (Some(b), None) => {
                 steps.push(UndoStep::SetRef {
@@ -350,7 +377,7 @@ pub fn plan(
                     oid: b.clone(),
                     expect: None,
                 });
-                what.push(format!("恢复 {label}"));
+                what.push(tr!("恢复 {label}", "restore {label}"));
             }
             (Some(b), Some(a)) if a != b => {
                 steps.push(UndoStep::SetRef {
@@ -358,7 +385,7 @@ pub fn plan(
                     oid: b.clone(),
                     expect: Some(a.clone()),
                 });
-                what.push(format!("{label} 移回 {}", short(b)));
+                what.push(tr!("{label} 移回 {}", "move {label} back to {}", short(b)));
             }
             _ => {}
         }
@@ -371,12 +398,15 @@ pub fn plan(
             oid: oid.clone(),
             message: msg.clone(),
         });
-        what.push("把 stash 放回列表".into());
+        what.push(tr!("把 stash 放回列表", "put the stash back on the list"));
     } else if let Some(top) = as_.filter(|t| Some(*t) != bs) {
         steps.push(UndoStep::StashPop {
             expect_top: top.clone(),
         });
-        what.push("把修改从 stash 取回".into());
+        what.push(tr!(
+            "把修改从 stash 取回",
+            "get the changes back from the stash"
+        ));
     }
 
     if !saved.is_empty() {
@@ -386,16 +416,25 @@ pub fn plan(
             files: saved.files.clone(),
         });
         what.push(if meta.kind == OpKind::Reset {
-            "恢复重置前的本地修改".into()
+            tr!(
+                "恢复重置前的本地修改",
+                "restore the local changes from before the reset"
+            )
         } else if meta.kind == OpKind::Shelve {
-            "恢复文件到操作前的内容".into()
+            tr!(
+                "恢复文件到操作前的内容",
+                "restore the files as they were before"
+            )
         } else {
-            "恢复被丢弃的修改（作为未暂存的修改）".into()
+            tr!(
+                "恢复被丢弃的修改（作为未暂存的修改）",
+                "restore the discarded changes (unstaged)"
+            )
         });
     }
 
     if steps.is_empty() {
-        return Err("没有可撤销的变化".into());
+        return Err(tr!("没有可撤销的变化", "Nothing to undo"));
     }
     Ok((steps, what.join("，")))
 }
@@ -493,8 +532,9 @@ pub fn check(repo: &Repo, steps: &[UndoStep]) -> Result<(), String> {
                     .iter()
                     .find(|f| fingerprint(&repo.root().join(&f.path)) != f.after)
                 {
-                    return Err(format!(
+                    return Err(tr!(
                         "{} 在这次操作之后又被修改过，恢复会覆盖这些修改",
+                        "{} was changed since; restoring it would overwrite those changes",
                         f.path
                     ));
                 }
@@ -502,7 +542,10 @@ pub fn check(repo: &Repo, steps: &[UndoStep]) -> Result<(), String> {
             }
         };
         if !ok {
-            return Err("仓库在这次操作之后又有变化，无法安全撤销".into());
+            return Err(tr!(
+                "仓库在这次操作之后又有变化，无法安全撤销",
+                "The repository has changed since: it cannot be undone safely"
+            ));
         }
     }
     Ok(())

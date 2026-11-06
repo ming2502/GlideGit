@@ -11,6 +11,7 @@ import { relativeTime, splitPath } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { CommitDetailsPane } from "./CommitDetails";
 import { TextsDiff } from "./DiffView";
+import { t } from "../i18n";
 
 type Tab = "left" | "right" | "files";
 type Mode = "tips" | "left" | "right";
@@ -38,7 +39,7 @@ function CommitList({ commits, total }: { commits: CommitSummary[]; total: numbe
     else return;
     e.preventDefault();
   };
-  if (!commits.length) return <div className="diff-empty">没有对方缺少的提交</div>;
+  if (!commits.length) return <div className="diff-empty">{t("没有对方缺少的提交")}</div>;
   return (
     <div className="hv-body">
       <div className="hv-list" tabIndex={0} onKeyDown={onKey}>
@@ -48,7 +49,7 @@ function CommitList({ commits, total }: { commits: CommitSummary[]; total: numbe
             className={`hv-row ${i === sel ? "selected" : ""}`}
             onMouseDown={() => setSel(i)}
             onDoubleClick={() => showInLog(c.oid)}
-            title="双击或回车在 Log 中显示"
+            title={t("双击或回车在 Log 中显示")}
           >
             <div className="hv-subject">{c.subject}</div>
             <div className="hv-meta muted">
@@ -58,7 +59,7 @@ function CommitList({ commits, total }: { commits: CommitSummary[]; total: numbe
             </div>
           </div>
         ))}
-        {total > commits.length && <div className="muted hv-more">另有 {total - commits.length} 个更早的提交未列出</div>}
+        {total > commits.length && <div className="muted hv-more">{t("另有 {count} 个更早的提交未列出", { count: total - commits.length })}</div>}
       </div>
       <div className="hv-diff">{cur && <CommitDetailsPane oid={cur.oid} refs={cur.refs} onJump={showInLog} />}</div>
     </div>
@@ -108,7 +109,7 @@ function FileDiffs({ from, to, label }: { from: string; to: string; label: strin
         <span className="spinner" />
       </div>
     );
-  if (!files.length) return <div className="diff-empty">两边的文件完全相同</div>;
+  if (!files.length) return <div className="diff-empty">{t("两边的文件完全相同")}</div>;
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown") setSel((i) => Math.min(files.length - 1, i + 1));
     else if (e.key === "ArrowUp") setSel((i) => Math.max(0, i - 1));
@@ -180,58 +181,58 @@ export function CompareView() {
       ? { from: data.rightOid, to: data.leftOid, label: `${R} → ${L}` }
       : base
         ? mode === "left"
-          ? { from: base, to: data.leftOid, label: `分叉点 ${base.slice(0, 7)} → ${L}` }
-          : { from: base, to: data.rightOid, label: `分叉点 ${base.slice(0, 7)} → ${R}` }
+          ? { from: base, to: data.leftOid, label: t("分叉点 {base} → {L}", { base: base.slice(0, 7), L }) }
+          : { from: base, to: data.rightOid, label: t("分叉点 {base} → {R}", { base: base.slice(0, 7), R }) }
         : null
     : null;
 
   return (
-    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={`比较 ${L} 与 ${R}`} onKeyDown={(e) => e.key === "Escape" && close()}>
+    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={t("比较 {L} 与 {R}", { L, R })} onKeyDown={(e) => e.key === "Escape" && close()}>
       <div className="mt-window">
         <div className="mt-header">
           <b>
-            比较 {L} ⇄ {R}
+            {t("比较 {L} ⇄ {R}", { L, R })}
           </b>
           {data && (
             <span className="muted">
-              {base ? `分叉点 ${base.slice(0, 7)}` : "没有共同历史"}
-              {data.onlyLeftCount === 0 && data.onlyRightCount === 0 && "，两边指向同一提交"}
+              {base ? t("分叉点 {base}", { base: base.slice(0, 7) }) : t("没有共同历史")}
+              {data.onlyLeftCount === 0 && data.onlyRightCount === 0 && t("，两边指向同一提交")}
             </span>
           )}
           <span className="spacer" />
-          <button className="btn btn-sm" onClick={swap} title="交换左右两边">
-            ⇄ 交换
+          <button className="btn btn-sm" onClick={swap} title={t("交换左右两边")}>
+            {t("⇄ 交换")}
           </button>
           <button className="btn btn-sm" onClick={close} autoFocus>
-            关闭
+            {t("关闭")}
           </button>
         </div>
         {error ? (
           <div className="diff-empty">{error}</div>
         ) : !data ? (
           <div className="diff-empty">
-            <span className="spinner" /> 正在比较…
+            <span className="spinner" />{t("正在比较…")}
           </div>
         ) : (
           <>
             <div className="cmp-tabs">
               <button className={tab === "left" ? "on" : ""} onClick={() => setTab("left")}>
-                仅在 {L} 中的提交 <span className="cmp-count">{data.onlyLeftCount}</span>
+                {t("仅在 {L} 中的提交", { L })}{" "}<span className="cmp-count">{data.onlyLeftCount}</span>
               </button>
               <button className={tab === "right" ? "on" : ""} onClick={() => setTab("right")}>
-                仅在 {R} 中的提交 <span className="cmp-count">{data.onlyRightCount}</span>
+                {t("仅在 {R} 中的提交", { R })}{" "}<span className="cmp-count">{data.onlyRightCount}</span>
               </button>
               <button className={tab === "files" ? "on" : ""} onClick={() => setTab("files")}>
-                文件差异
+                {t("文件差异")}
               </button>
               {tab === "files" && (
                 <select className="rb-action cmp-mode" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-                  <option value="tips">两端对比（{R} → {L}）</option>
+                  <option value="tips">{t("两端对比（{R} → {L}）", { R, L })}</option>
                   <option value="left" disabled={!base}>
-                    {L} 自分叉以来的改动
+                    {t("{L} 自分叉以来的改动", { L })}
                   </option>
                   <option value="right" disabled={!base}>
-                    {R} 自分叉以来的改动
+                    {t("{R} 自分叉以来的改动", { R })}
                   </option>
                 </select>
               )}
@@ -243,7 +244,7 @@ export function CompareView() {
             ) : range ? (
               <FileDiffs key={`${range.from}:${range.to}`} from={range.from} to={range.to} label={range.label} />
             ) : (
-              <div className="diff-empty">两边没有共同历史，只能做两端对比</div>
+              <div className="diff-empty">{t("两边没有共同历史，只能做两端对比")}</div>
             )}
           </>
         )}

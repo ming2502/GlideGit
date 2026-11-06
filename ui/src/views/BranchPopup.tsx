@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { api } from "../api";
 import type { Branch } from "../bindings/Branch";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 type Item =
   | { type: "header"; label: string }
@@ -72,25 +73,25 @@ export function BranchPopup() {
   async function checkout(b: Branch) {
     close();
     if (b.isHead) return;
-    await runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, b.isRemote), `已切换到 ${b.isRemote ? b.name.split("/").slice(1).join("/") : b.name}`);
+    await runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, b.isRemote), t("已切换到 {branch}", { branch: b.isRemote ? b.name.split("/").slice(1).join("/") : b.name }));
   }
 
   async function create() {
     const name = newName.trim();
     if (!name) return;
     close();
-    await runTask(`新建分支 ${name}`, (r) => api.createBranch(r, name, null, true), `已创建并切换到 ${name}`);
+    await runTask(t("新建分支 {name}", { name }), (r) => api.createBranch(r, name, null, true), t("已创建并切换到 {name}", { name }));
   }
 
   async function remove(b: Branch) {
     const ok = await ask({
-      title: "删除分支",
-      message: `删除本地分支 ${b.name}？未合并的提交可通过 reflog 找回。`,
-      confirmLabel: "删除",
+      title: t("删除分支"),
+      message: t("删除本地分支 {name}？未合并的提交可通过 reflog 找回。", { name: b.name }),
+      confirmLabel: t("删除"),
       danger: true,
     });
     if (!ok) return;
-    await runTask(`删除分支 ${b.name}`, (r) => api.deleteBranch(r, b.name, true), `已删除 ${b.name}`);
+    await runTask(t("删除分支 {name}", { name: b.name }), (r) => api.deleteBranch(r, b.name, true), t("已删除 {name}", { name: b.name }));
   }
 
   function activate(i: number) {
@@ -144,7 +145,7 @@ export function BranchPopup() {
           <input
             ref={inputRef}
             className="bp-search"
-            placeholder="新分支名称（从当前 HEAD 创建并切换）"
+            placeholder={t("新分支名称（从当前 HEAD 创建并切换）")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
@@ -152,7 +153,7 @@ export function BranchPopup() {
           <input
             ref={inputRef}
             className="bp-search"
-            placeholder="搜索分支或执行动作…"
+            placeholder={t("搜索分支或执行动作…")}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -174,7 +175,7 @@ export function BranchPopup() {
                   onMouseEnter={() => setActive(i)}
                   onClick={() => activate(i)}
                 >
-                  <span className="bp-plus">＋</span> New Branch…
+                  <span className="bp-plus">{t("＋")}</span> New Branch…
                 </div>
               ) : (
                 <div
@@ -196,7 +197,7 @@ export function BranchPopup() {
                   {!it.branch.isHead && (
                     <button
                       className="bp-del bp-cmp"
-                      title="与当前分支比较"
+                      title={t("与当前分支比较")}
                       onClick={(e) => {
                         e.stopPropagation();
                         close();
@@ -214,7 +215,7 @@ export function BranchPopup() {
                   {!it.branch.isRemote && !it.branch.isHead && (
                     <button
                       className="bp-del"
-                      title="删除分支"
+                      title={t("删除分支")}
                       onClick={(e) => {
                         e.stopPropagation();
                         close();
@@ -227,10 +228,10 @@ export function BranchPopup() {
                 </div>
               ),
             )}
-            {items.length === 0 && <div className="empty">没有匹配的分支</div>}
+            {items.length === 0 && <div className="empty">{t("没有匹配的分支")}</div>}
           </div>
         )}
-        <div className="bp-footer muted">↑↓ 选择 · ↩ Checkout · Esc 关闭</div>
+        <div className="bp-footer muted">{t("↑↓ 选择 · ↩ Checkout · Esc 关闭")}</div>
       </div>
     </div>
   );

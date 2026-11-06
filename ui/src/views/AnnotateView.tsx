@@ -12,6 +12,7 @@ import { editorLook, loadLanguage } from "../components/CodeDiff";
 import { ContextMenu } from "../components/ContextMenu";
 import { relativeTime } from "../lib/format";
 import { useRepo } from "../stores/repo";
+import { locale, t } from "../i18n";
 
 const isUncommitted = (c: BlameCommit) => /^0+$/.test(c.oid);
 
@@ -86,11 +87,11 @@ export function AnnotateView() {
         : `color-mix(in srgb, var(--accent) ${Math.round(8 + 40 * (max > min ? (c.authorTime - min) / (max - min) : 1))}%, transparent)`;
     const title = (c: BlameCommit) =>
       isUncommitted(c)
-        ? "尚未提交的修改"
-        : `${c.oid.slice(0, 8)} · ${c.authorName} <${c.authorEmail}>\n${new Date(c.authorTime * 1000).toLocaleString()}（${relativeTime(c.authorTime)}）\n\n${c.summary}\n\n点击在 Log 中查看，右键查看更多`;
+        ? t("尚未提交的修改")
+        : t("{hash} · {authorName} <{authorEmail}>\n{date}（{relativeTime}）\n\n{summary}\n\n点击在 Log 中查看，右键查看更多", { hash: c.oid.slice(0, 8), authorName: c.authorName, authorEmail: c.authorEmail, date: new Date(c.authorTime * 1000).toLocaleString(locale), relativeTime: relativeTime(c.authorTime), summary: c.summary });
     const markers = commits.map(
       (c) =>
-        new BlameMarker(isUncommitted(c) ? "未提交" : `${shortDate(c.authorTime)}  ${c.authorName}`, heat(c), title(c)),
+        new BlameMarker(isUncommitted(c) ? t("未提交") : `${shortDate(c.authorTime)}  ${c.authorName}`, heat(c), title(c)),
     );
     const blank = commits.map((c) => new BlameMarker("", heat(c), title(c)));
     const commitAt = (view: EditorView, pos: number) => blame.lines[view.state.doc.lineAt(pos).number - 1];
@@ -197,18 +198,18 @@ export function AnnotateView() {
   const authors = blame ? new Set(blame.commits.filter((c) => !isUncommitted(c)).map((c) => c.authorEmail)).size : 0;
 
   return (
-    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={`注释 ${target.path}`} onKeyDown={(e) => e.key === "Escape" && close()}>
+    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={t("注释 {path}", { path: target.path })} onKeyDown={(e) => e.key === "Escape" && close()}>
       <div className="mt-window">
         <div className="mt-header">
           {history.length > 0 && (
-            <button className="btn btn-sm" onClick={back} title="回到上一个版本的注释">
-              ← 返回
+            <button className="btn btn-sm" onClick={back} title={t("回到上一个版本的注释")}>
+              {t("← 返回")}
             </button>
           )}
-          <b>注释 {target.path}</b>
+          <b>{t("注释 {path}", { path: target.path })}</b>
           <span className="muted">
-            {target.rev ? `@ ${target.rev.slice(0, 8)}` : "工作区"}
-            {blame && ` · ${blame.lines.length} 行，${blame.commits.length} 个提交，${authors} 位作者`}
+            {target.rev ? `@ ${target.rev.slice(0, 8)}` : t("工作区")}
+            {blame && t(" · {lines} 行，{commits} 个提交，{authors} 位作者", { lines: blame.lines.length, commits: blame.commits.length, authors })}
           </span>
           <span className="spacer" />
           <button
@@ -217,24 +218,24 @@ export function AnnotateView() {
             onClick={() => lines && openHistory({ path: target.path, range: lines, rev: target.rev })}
             title={
               lines
-                ? `修改过第 ${lines[0]}–${lines[1]} 行的提交${target.rev ? "" : "（按 HEAD 版本的行号计算）"}`
-                : "先在文件中选中几行"
+                ? t("修改过第 {from}–{to} 行的提交{note}", { from: lines[0], to: lines[1], note: target.rev ? "" : t("（按 HEAD 版本的行号计算）") })
+                : t("先在文件中选中几行")
             }
           >
-            选区历史{lines ? `（${lines[0]}–${lines[1]}）` : ""}
+            {t("选区历史{note}", { note: lines ? t("（{from}–{to}）", { note: lines[0], to: lines[1] }) : "" })}
           </button>
           <button className="btn btn-sm" onClick={() => openHistory({ path: target.path })}>
-            文件历史
+            {t("文件历史")}
           </button>
           <button className="btn btn-sm" onClick={close} autoFocus>
-            关闭
+            {t("关闭")}
           </button>
         </div>
         {error ? (
           <div className="diff-empty">{error}</div>
         ) : !blame ? (
           <div className="diff-empty">
-            <span className="spinner" /> 正在计算每一行的来源…
+            <span className="spinner" />{t("正在计算每一行的来源…")}
           </div>
         ) : (
           <div className="mt-editor annotate-editor" ref={host} />
@@ -247,16 +248,16 @@ export function AnnotateView() {
           onClose={() => setMenu(null)}
           items={
             isUncommitted(menu.commit)
-              ? [{ label: "这些修改尚未提交", disabled: true, onClick: () => {} }]
+              ? [{ label: t("这些修改尚未提交"), disabled: true, onClick: () => {} }]
               : [
-                  { label: "在 Log 中显示此提交", onClick: () => showInLog(menu.commit.oid) },
+                  { label: t("在 Log 中显示此提交"), onClick: () => showInLog(menu.commit.oid) },
                   {
-                    label: "注释此提交之前的版本",
+                    label: t("注释此提交之前的版本"),
                     disabled: !menu.commit.previousOid,
                     onClick: () => open({ path: menu.commit.previousPath!, rev: menu.commit.previousOid }),
                   },
                   "separator",
-                  { label: "复制提交 hash", onClick: () => void navigator.clipboard.writeText(menu.commit.oid) },
+                  { label: t("复制提交 hash"), onClick: () => void navigator.clipboard.writeText(menu.commit.oid) },
                 ]
           }
         />

@@ -7,6 +7,7 @@ import { bestMatch, type Match } from "../lib/fuzzy";
 import { repoName, splitPath } from "../lib/format";
 import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 interface Item {
   key: string;
@@ -48,17 +49,17 @@ function collect(): Item[] {
       items.push({
         key: `checkout:${b.name}`,
         title: b.name,
-        kind: "切换分支",
+        kind: t("切换分支"),
         aliases: [`checkout 切换到 ${b.name}`],
         enabled: true,
         searchOnly: true,
-        run: () => void st.runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, false), `已切换到 ${b.name}`),
+        run: () => void st.runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, false), t("已切换到 {name}", { name: b.name })),
       });
       if (head)
         items.push({
           key: `compare:${b.name}`,
           title: `${b.name} ⇄ ${head}`,
-          kind: "比较分支",
+          kind: t("比较分支"),
           aliases: [`compare 比较 ${b.name}`],
           enabled: true,
           searchOnly: true,
@@ -71,11 +72,11 @@ function collect(): Item[] {
       items.push({
         key: `checkout-remote:${b.name}`,
         title: b.name,
-        kind: "检出远程分支",
+        kind: t("检出远程分支"),
         aliases: [`checkout 检出 ${local}`],
         enabled: true,
         searchOnly: true,
-        run: () => void st.runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, true), `已检出 ${local}`),
+        run: () => void st.runTask(`Checkout ${b.name}`, (r) => api.checkoutBranch(r, b.name, true), t("已检出 {local}", { local })),
       });
     }
     for (const c of snap.changes) {
@@ -84,7 +85,7 @@ function collect(): Item[] {
         key: `file:${c.path}`,
         title: name,
         detail: dir,
-        kind: "已修改的文件",
+        kind: t("已修改的文件"),
         aliases: [c.path],
         enabled: true,
         searchOnly: true,
@@ -101,7 +102,7 @@ function collect(): Item[] {
       key: `repo:${r}`,
       title: repoName(r),
       detail: r,
-      kind: "打开仓库",
+      kind: t("打开仓库"),
       aliases: [r],
       enabled: true,
       searchOnly: true,
@@ -188,26 +189,26 @@ export function CommandPalette() {
 
   return (
     <div className="backdrop clear" onMouseDown={close}>
-      <div className="branch-popup palette" role="dialog" aria-modal aria-label="命令面板" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="branch-popup palette" role="dialog" aria-modal aria-label={t("命令面板")} onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={input}
           autoFocus
           className="bp-search"
-          placeholder="搜索操作、分支、文件…（也可以用中文）"
+          placeholder={t("搜索操作、分支、文件…（也可以用中文）")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKey}
           spellCheck={false}
         />
         <div className="bp-list" ref={listRef}>
-          {rows.length === 0 && <div className="cp-empty muted">没有匹配的操作</div>}
+          {rows.length === 0 && <div className="cp-empty muted">{t("没有匹配的操作")}</div>}
           {rows.map(({ item, match }, i) => (
             <div
               key={item.key}
               className={`cp-row ${i === active ? "active" : ""} ${item.enabled ? "" : "disabled"}`}
               onMouseMove={() => i !== active && setActive(i)}
               onClick={() => run(item)}
-              title={item.enabled ? undefined : "当前不可用"}
+              title={item.enabled ? undefined : t("当前不可用")}
             >
               <span className="cp-title">
                 <Highlight text={item.title} positions={match?.positions} />
@@ -219,7 +220,7 @@ export function CommandPalette() {
             </div>
           ))}
         </div>
-        <div className="bp-footer muted">↑↓ 选择 · 回车 执行 · 双击 Shift 或 {formatKeys(["mod+shift+a"])} 打开</div>
+        <div className="bp-footer muted">{t("↑↓ 选择 · 回车 执行 · 双击 Shift 或 {formatKeys} 打开", { formatKeys: formatKeys(["mod+shift+a"]) })}</div>
       </div>
     </div>
   );

@@ -2,6 +2,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。发布工作流从这里取出对应版本的一节，作为 GitHub release 的说明和应用内的更新说明。
 
+## [Unreleased]
+
+### 新增
+
+- 英文界面：「设置 → 外观 → 语言」可选跟随系统、简体中文或 English；跟随系统时，非中文系统显示英文。操作记录、撤销说明等由后端生成的文字也随之切换。
+- 以 Apache License 2.0 开源（`LICENSE`、`NOTICE`）。
+
 ## [1.0.0] - 2026-11-06
 
 GlideGit 的第一个版本：一个交互对标 IntelliJ IDEA Git 集成的跨平台 Git 客户端，支持 macOS（Apple 芯片与 Intel）和 Windows。

@@ -10,6 +10,7 @@ import { splitPath } from "../lib/format";
 import { addList, DEFAULT_ID, groupChanges, listOf, moveFiles, prune, removeList, renameList, setActive } from "../lib/changelists";
 import { isIncluded, useRepo } from "../stores/repo";
 import { MoveDialog, NameDialog, ShelveDialog } from "./ChangelistDialogs";
+import { t } from "../i18n";
 
 /** This view's actions (declared up front so the shortcut settings list them). */
 const COMMIT_ACTIONS = defineActions([
@@ -163,12 +164,12 @@ export function CommitPanel() {
     const tracked = changes
       .filter((c) => c.unstaged !== "untracked" && c.staged !== "added")
       .flatMap((c) => (c.origPath ? [c.path, c.origPath] : [c.path]));
-    const names = changes.length === 1 ? changes[0].path : `${changes.length} 个文件`;
+    const names = changes.length === 1 ? changes[0].path : t("{count} 个文件", { count: changes.length });
     const ok = await ask({
       title: "Rollback Changes",
       message:
-        `将 ${names} 恢复到 HEAD 版本（之后可在撤销中心恢复）。` +
-        (untracked.length ? `\n其中 ${untracked.length} 个未跟踪文件将被删除。` : ""),
+        t("将 {names} 恢复到 HEAD 版本（之后可在撤销中心恢复）。", { names }) +
+        (untracked.length ? t("\n其中 {count} 个未跟踪文件将被删除。", { count: untracked.length }) : ""),
       confirmLabel: "Rollback",
       danger: true,
     });
@@ -192,8 +193,8 @@ export function CommitPanel() {
     const name = list
       ? list.name
       : changes.length === 1
-        ? `${splitPath(changes[0].path).name} 的修改`
-        : `${changes.length} 个文件的修改`;
+        ? t("{name} 的修改", { name: splitPath(changes[0].path).name })
+        : t("{count} 个文件的修改", { count: changes.length });
     const ids = cl ? new Set(changes.map((c) => listOf(cl, c.path))) : new Set<string>();
     const only = ids.size === 1 && cl ? cl.lists.find((l) => l.id === [...ids][0]) : undefined;
     // Unshelving puts the files back into the list they came from.
@@ -202,7 +203,7 @@ export function CommitPanel() {
   }
 
   async function shelve(changes: FileChange[], name: string, changelist: string | null) {
-    await runTask("搁置修改", (r) => api.shelve(r, gitPaths(changes), name, changelist), `已搁置：${name}`);
+    await runTask(t("搁置修改"), (r) => api.shelve(r, gitPaths(changes), name, changelist), t("已搁置：{name}", { name }));
   }
 
   /** Include exactly this list's files in the commit. */
@@ -217,11 +218,11 @@ export function CommitPanel() {
   async function commit(andPush: boolean) {
     if (!canCommit) return;
     const msg = message;
-    const oid = await runTask("提交", (r) => api.commit(r, msg, amend));
+    const oid = await runTask(t("提交"), (r) => api.commit(r, msg, amend));
     if (!oid) return;
     setMessage("");
     setAmend(false);
-    useRepo.getState().toast({ kind: "success", title: `已提交 ${oid.slice(0, 8)}`, detail: msg.split("\n")[0] });
+    useRepo.getState().toast({ kind: "success", title: t("已提交 {hash}", { hash: oid.slice(0, 8) }), detail: msg.split("\n")[0] });
     // Like IDEA: "Commit and Push…" commits, then opens the push dialog.
     if (andPush) useRepo.getState().setPushDialog(true);
   }
@@ -293,19 +294,19 @@ export function CommitPanel() {
     if (!list) return [];
     const paths = snapshot.changes.map((c) => c.path);
     return [
-      { label: "提交此 Changelist…", disabled: changes.length === 0, onClick: () => void commitList(changes) },
-      { label: "搁置此 Changelist…", disabled: changes.length === 0, onClick: () => startShelve(changes, listId) },
-      { label: "移动全部文件到…", disabled: changes.length === 0, onClick: () => startMove(changes) },
+      { label: t("提交此 Changelist…"), disabled: changes.length === 0, onClick: () => void commitList(changes) },
+      { label: t("搁置此 Changelist…"), disabled: changes.length === 0, onClick: () => startShelve(changes, listId) },
+      { label: t("移动全部文件到…"), disabled: changes.length === 0, onClick: () => startMove(changes) },
       "separator",
       {
-        label: "设为活动 Changelist",
+        label: t("设为活动 Changelist"),
         disabled: cl.active === listId,
         onClick: () => updateLists((st) => setActive(st, listId, paths)),
       },
-      { label: "新建 Changelist…", onClick: () => setDialog({ kind: "new", paths: [] }) },
-      { label: "重命名…", onClick: () => setDialog({ kind: "rename", id: listId, name: list.name }) },
+      { label: t("新建 Changelist…"), onClick: () => setDialog({ kind: "new", paths: [] }) },
+      { label: t("重命名…"), onClick: () => setDialog({ kind: "rename", id: listId, name: list.name }) },
       {
-        label: "删除 Changelist",
+        label: t("删除 Changelist"),
         danger: true,
         disabled: listId === DEFAULT_ID,
         onClick: () => updateLists((st) => removeList(st, listId)),
@@ -317,30 +318,30 @@ export function CommitPanel() {
     const inc = included(c);
     if (c.conflicted)
       return [
-        { label: "解决冲突…", onClick: () => useRepo.getState().setMergePath(c.path) },
+        { label: t("解决冲突…"), onClick: () => useRepo.getState().setMergePath(c.path) },
         "separator",
-        { label: "复制路径", onClick: () => void navigator.clipboard.writeText(c.path) },
+        { label: t("复制路径"), onClick: () => void navigator.clipboard.writeText(c.path) },
       ];
     return [
-      { label: inc === true ? "从提交中排除 (Unstage)" : "加入提交 (Stage)", onClick: () => toggle([c]) },
+      { label: inc === true ? t("从提交中排除 (Unstage)") : t("加入提交 (Stage)"), onClick: () => toggle([c]) },
       { label: "Rollback…", shortcut: shortcutOf("changes.rollback"), danger: true, onClick: () => void rollback([c]) },
       "separator",
       ...(c.unstaged !== "untracked"
-        ? [{ label: "移动到另一个 Changelist…", shortcut: shortcutOf("changes.moveToList"), onClick: () => startMove([c]) }]
+        ? [{ label: t("移动到另一个 Changelist…"), shortcut: shortcutOf("changes.moveToList"), onClick: () => startMove([c]) }]
         : []),
-      { label: "搁置修改…", onClick: () => startShelve([c]) },
+      { label: t("搁置修改…"), onClick: () => startShelve([c]) },
       "separator",
       {
-        label: "显示历史",
+        label: t("显示历史"),
         disabled: c.unstaged === "untracked",
         onClick: () => useRepo.getState().setHistory({ path: c.path }),
       },
       {
-        label: "注释（Annotate）",
+        label: t("注释（Annotate）"),
         disabled: c.unstaged === "untracked" || c.unstaged === "deleted",
         onClick: () => useRepo.getState().setAnnotate({ path: c.path, rev: null }),
       },
-      { label: "复制路径", onClick: () => void navigator.clipboard.writeText(c.path) },
+      { label: t("复制路径"), onClick: () => void navigator.clipboard.writeText(c.path) },
     ];
   }
 
@@ -348,11 +349,11 @@ export function CommitPanel() {
     <div className="commit-panel">
       <div className="panel-header">
         <span className="panel-title">Changes</span>
-        <span className="muted">{snapshot.changes.length ? `${includedCount}/${snapshot.changes.length} 已选` : ""}</span>
+        <span className="muted">{snapshot.changes.length ? t("{included}/{total} 已选", { included: includedCount, total: snapshot.changes.length }) : ""}</span>
       </div>
       <div ref={listRef} className="changes-list-wrap">
         {snapshot.changes.length === 0 ? (
-          <div className="empty">没有本地修改</div>
+          <div className="empty">{t("没有本地修改")}</div>
         ) : (
           <VirtualList
             items={rows}
@@ -372,7 +373,7 @@ export function CommitPanel() {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, list: row.listId, changes: row.changes });
                   }}
-                  title={row.active ? "活动 Changelist：新的修改会归入这里" : undefined}
+                  title={row.active ? t("活动 Changelist：新的修改会归入这里") : undefined}
                 >
                   <button
                     className={`twisty ${collapsed[row.id] ? "closed" : ""}`}
@@ -381,7 +382,7 @@ export function CommitPanel() {
                   />
                   {row.id !== "conflicts" && <Checkbox state={groupState(row.changes)} onToggle={() => toggle(row.changes)} />}
                   <span className="group-title">{row.title}</span>
-                  {row.active && <span className="cl-active">活动</span>}
+                  {row.active && <span className="cl-active">{t("活动")}</span>}
                   <span className="muted">{row.changes.length} files</span>
                 </div>
               ) : (
@@ -412,7 +413,7 @@ export function CommitPanel() {
         <textarea
           ref={msgRef}
           className="commit-message"
-          placeholder={`提交信息（${shortcutOf("commit.run") || "⌘↩"} 提交）`}
+          placeholder={t("提交信息（{shortcut} 提交）", { shortcut: shortcutOf("commit.run") || "⌘↩" })}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           spellCheck={false}
@@ -452,7 +453,7 @@ export function CommitPanel() {
       )}
       {dialog?.kind === "new" && cl && (
         <NameDialog
-          title="新建 Changelist"
+          title={t("新建 Changelist")}
           initial=""
           state={cl}
           activeOption
@@ -469,7 +470,7 @@ export function CommitPanel() {
       )}
       {dialog?.kind === "rename" && cl && (
         <NameDialog
-          title="重命名 Changelist"
+          title={t("重命名 Changelist")}
           initial={dialog.name}
           state={cl}
           except={dialog.id}

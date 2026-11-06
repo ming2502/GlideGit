@@ -12,6 +12,7 @@ import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
 import { CommitDetailsPane } from "./CommitDetails";
 import { ShelfPanel } from "./ShelfView";
+import { t } from "../i18n";
 
 /** Stash and Shelf, switched by tabs in the side panel's header. */
 export function StashView() {
@@ -59,27 +60,27 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
 
   const apply = (e: StashEntry, pop: boolean) =>
     void runTask(
-      `${pop ? "弹出" : "应用"} ${name(e)}`,
+      `${pop ? t("弹出") : t("应用")} ${name(e)}`,
       async (r) => {
         await api.stashApply(r, e.index, e.oid, pop, restoreIndex);
         reload();
       },
-      pop ? `已弹出 ${name(e)}` : `已应用 ${name(e)}`,
+      pop ? t("已弹出 {name}", { name: name(e) }) : t("已应用 {name}", { name: name(e) }),
     ).then(reload);
   const drop = async (e: StashEntry) => {
     const ok = await ask({
-      title: `删除 ${name(e)}？`,
-      message: `“${e.message}” 中保存的修改将被删除。`,
-      confirmLabel: "删除",
+      title: t("删除 {name}？", { name: name(e) }),
+      message: t("“{message}” 中保存的修改将被删除。", { message: e.message }),
+      confirmLabel: t("删除"),
       danger: true,
     });
-    if (ok) void runTask(`删除 ${name(e)}`, (r) => api.stashDrop(r, e.index, e.oid), `已删除 ${name(e)}`).then(reload);
+    if (ok) void runTask(t("删除 {name}", { name: name(e) }), (r) => api.stashDrop(r, e.index, e.oid), t("已删除 {name}", { name: name(e) })).then(reload);
   };
   const items = (e: StashEntry): (MenuItem | "separator")[] => [
-    { label: "应用", onClick: () => apply(e, false) },
-    { label: "弹出（应用后删除）", onClick: () => apply(e, true) },
+    { label: t("应用"), onClick: () => apply(e, false) },
+    { label: t("弹出（应用后删除）"), onClick: () => apply(e, true) },
     "separator",
-    { label: "删除…", danger: true, onClick: () => void drop(e) },
+    { label: t("删除…"), danger: true, onClick: () => void drop(e) },
   ];
 
   const onKey = (ev: KeyboardEvent<HTMLDivElement>) => {
@@ -107,20 +108,20 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
       <div className="stash-side">
         <div className="panel-header">
           {tabs}
-          <span className="muted">{list ? `${list.length} 个` : ""}</span>
+          <span className="muted">{list ? t("{count} 个", { count: list.length }) : ""}</span>
           <span className="spacer" />
-          <button className="btn btn-sm" onClick={() => setStashDialog(true)} title="把当前修改存入 stash">
-            Stash 修改…
+          <button className="btn btn-sm" onClick={() => setStashDialog(true)} title={t("把当前修改存入 stash")}>
+            {t("Stash 修改…")}
           </button>
         </div>
         {list === null ? (
           <div className="empty">
-            <span className="spinner inline" /> 正在读取…
+            <span className="spinner inline" />{t("正在读取…")}
           </div>
         ) : list.length === 0 ? (
           <div className="empty">
-            没有 stash
-            <div className="muted">用「Stash 修改…」暂存当前改动，切换分支后再取回</div>
+            {t("没有 stash")}
+            <div className="muted">{t("用「Stash 修改…」暂存当前改动，切换分支后再取回")}</div>
           </div>
         ) : (
           <div className="stash-list" tabIndex={0} onKeyDown={onKey}>
@@ -136,7 +137,7 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
                   setMenu({ x: ev.clientX, y: ev.clientY, e });
                 }}
               >
-                <div className="stash-msg">{e.message || "（无说明）"}</div>
+                <div className="stash-msg">{e.message || t("（无说明）")}</div>
                 <div className="stash-meta muted">
                   <span className="mono">{name(e)}</span>
                   {e.branch && <span className="ref ref-local">{e.branch}</span>}
@@ -148,19 +149,19 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
         )}
         {entry && (
           <div className="stash-actions">
-            <label className="log-dialog-check" title="同时恢复 stash 时已暂存的修改（git stash apply --index）">
+            <label className="log-dialog-check" title={t("同时恢复 stash 时已暂存的修改（git stash apply --index）")}>
               <input type="checkbox" checked={restoreIndex} onChange={(ev) => setRestoreIndex(ev.target.checked)} />
-              恢复暂存状态
+              {t("恢复暂存状态")}
             </label>
             <span className="spacer" />
             <button className="btn btn-sm" onClick={() => void drop(entry)}>
-              删除
+              {t("删除")}
             </button>
             <button className="btn btn-sm" onClick={() => apply(entry, false)}>
-              应用
+              {t("应用")}
             </button>
             <button className="btn btn-sm btn-primary" onClick={() => apply(entry, true)}>
-              弹出
+              {t("弹出")}
             </button>
           </div>
         )}
@@ -169,7 +170,7 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
         {entry ? (
           <CommitDetailsPane oid={entry.oid} refs={[]} onJump={() => {}} load={loadDetails} loadTexts={loadTexts} hideParents />
         ) : (
-          <div className="diff-empty">{list?.length ? "选择一个 stash 查看修改" : ""}</div>
+          <div className="diff-empty">{list?.length ? t("选择一个 stash 查看修改") : ""}</div>
         )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items(menu.e)} onClose={() => setMenu(null)} />}
@@ -197,9 +198,9 @@ export function StashDialog() {
   const submit = () => {
     close();
     void runTask(
-      "Stash 修改",
+      t("Stash 修改"),
       (r) => api.stashPush(r, { message: message.trim() || null, includeUntracked: untracked, keepIndex, paths: [] }),
-      "已存入 stash",
+      t("已存入 stash"),
     );
   };
   return (
@@ -208,7 +209,7 @@ export function StashDialog() {
         className="dialog log-dialog"
         role="dialog"
         aria-modal
-        aria-label="Stash 修改"
+        aria-label={t("Stash 修改")}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === "Escape" && close()}
         onSubmit={(e) => {
@@ -216,22 +217,22 @@ export function StashDialog() {
           submit();
         }}
       >
-        <h3>Stash 修改</h3>
+        <h3>{t("Stash 修改")}</h3>
         <label className="log-dialog-field">
-          <span>说明（可选）</span>
-          <input ref={input} className="lf-input" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="例如：试验中的解析器改动" />
+          <span>{t("说明（可选）")}</span>
+          <input ref={input} className="lf-input" value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("例如：试验中的解析器改动")} />
         </label>
         <label className="log-dialog-check">
           <input type="checkbox" checked={untracked} onChange={(e) => setUntracked(e.target.checked)} />
-          包含未跟踪的文件{hasUntracked ? "" : "（当前没有）"}
+          {t("包含未跟踪的文件{note}", { note: hasUntracked ? "" : t("（当前没有）") })}
         </label>
         <label className="log-dialog-check">
           <input type="checkbox" checked={keepIndex} onChange={(e) => setKeepIndex(e.target.checked)} />
-          保留已暂存的修改（--keep-index）
+          {t("保留已暂存的修改（--keep-index）")}
         </label>
         <div className="dialog-actions">
           <button type="button" className="btn" onClick={close}>
-            取消
+            {t("取消")}
           </button>
           <button type="submit" className="btn btn-primary">
             Stash

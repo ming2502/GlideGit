@@ -14,6 +14,7 @@ import { LogGraph, graphPx, graphWidth } from "./LogGraph";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import type { ResetMode } from "../bindings/ResetMode";
 import { NewRefDialog, ResetDialog } from "./LogDialogs";
+import { t } from "../i18n";
 
 const ROW_H = 26;
 /** Rows per request to the commit index. */
@@ -227,38 +228,38 @@ export function LogView() {
       .filter((n) => n !== currentBranch)
       .map((n) =>
         localBranches.has(n)
-          ? { label: `Checkout ${n}`, onClick: () => void runTask(`切换到 ${n}`, (r) => api.checkoutBranch(r, n, false)) }
-          : { label: `Checkout ${n}（新建跟踪分支）`, onClick: () => void runTask(`切换到 ${n}`, (r) => api.checkoutBranch(r, n, true)) },
+          ? { label: `Checkout ${n}`, onClick: () => void runTask(t("切换到 {n}", { n }), (r) => api.checkoutBranch(r, n, false)) }
+          : { label: t("Checkout {n}（新建跟踪分支）", { n }), onClick: () => void runTask(t("切换到 {n}", { n }), (r) => api.checkoutBranch(r, n, true)) },
       );
     return [
       ...checkouts,
       {
-        label: "Checkout 此修订（游离 HEAD）",
+        label: t("Checkout 此修订（游离 HEAD）"),
         onClick: async () => {
           const ok = await ask({
-            title: "切换到游离 HEAD？",
-            message: `将检出 ${short(c)}，不在任何分支上。\n在此状态下的新提交需要新建分支才能保留。`,
+            title: t("切换到游离 HEAD？"),
+            message: t("将检出 {short}，不在任何分支上。\n在此状态下的新提交需要新建分支才能保留。", { short: short(c) }),
             confirmLabel: "Checkout",
           });
-          if (ok) void runTask(`检出 ${short(c)}`, (r) => api.checkoutDetached(r, c.oid));
+          if (ok) void runTask(t("检出 {short}", { short: short(c) }), (r) => api.checkoutDetached(r, c.oid));
         },
       },
-      { label: "新建分支…", onClick: () => setDialog({ kind: "branch", commit: c }) },
-      { label: "新建标签…", onClick: () => setDialog({ kind: "tag", commit: c }) },
+      { label: t("新建分支…"), onClick: () => setDialog({ kind: "branch", commit: c }) },
+      { label: t("新建标签…"), onClick: () => setDialog({ kind: "tag", commit: c }) },
       "separator",
       {
         label: "Cherry-pick",
         disabled: !!snapshot?.operation,
-        onClick: () => void runTask(`Cherry-pick ${short(c)}`, (r) => api.cherryPick(r, c.oid), `已 cherry-pick ${short(c)}`),
+        onClick: () => void runTask(`Cherry-pick ${short(c)}`, (r) => api.cherryPick(r, c.oid), t("已 cherry-pick {short}", { short: short(c) })),
       },
       {
-        label: "Revert 提交",
+        label: t("Revert 提交"),
         disabled: !!snapshot?.operation,
-        onClick: () => void runTask(`Revert ${short(c)}`, (r) => api.revert(r, c.oid), `已 revert ${short(c)}`),
+        onClick: () => void runTask(`Revert ${short(c)}`, (r) => api.revert(r, c.oid), t("已 revert {short}", { short: short(c) })),
       },
       "separator",
       {
-        label: currentBranch ? `与 ${currentBranch} 比较` : "与 HEAD 比较",
+        label: currentBranch ? t("与 {currentBranch} 比较", { currentBranch }) : t("与 HEAD 比较"),
         onClick: () =>
           useRepo.getState().setCompare({
             left: c.oid,
@@ -268,22 +269,22 @@ export function LogView() {
           }),
       },
       {
-        label: "从此提交开始交互式变基…",
+        label: t("从此提交开始交互式变基…"),
         disabled: !!snapshot?.operation,
         onClick: () => useRepo.getState().setRebaseFrom(c),
       },
       {
-        label: currentBranch ? `将 ${currentBranch} 重置到此处…` : "将 HEAD 重置到此处…",
+        label: currentBranch ? t("将 {currentBranch} 重置到此处…", { currentBranch }) : t("将 HEAD 重置到此处…"),
         disabled: !!snapshot?.operation,
         onClick: () => setDialog({ kind: "reset", commit: c }),
       },
       "separator",
       {
-        label: "复制提交 hash",
+        label: t("复制提交 hash"),
         onClick: () =>
           void navigator.clipboard
             .writeText(c.oid)
-            .then(() => useRepo.getState().toast({ kind: "success", title: "已复制提交 hash" })),
+            .then(() => useRepo.getState().toast({ kind: "success", title: t("已复制提交 hash") })),
       },
     ];
   };
@@ -292,14 +293,14 @@ export function LogView() {
     setDialog(null);
     if (mode === "hard") {
       const ok = await ask({
-        title: "确定执行 Hard 重置？",
-        message: `${currentBranch ?? "HEAD"} 将指向 ${short(c)}，工作区和暂存区中的所有修改都会被丢弃，无法恢复。`,
-        confirmLabel: "丢弃修改并重置",
+        title: t("确定执行 Hard 重置？"),
+        message: t("{branch} 将指向 {short}，工作区和暂存区中的所有修改都会被丢弃，无法恢复。", { branch: currentBranch ?? "HEAD", short: short(c) }),
+        confirmLabel: t("丢弃修改并重置"),
         danger: true,
       });
       if (!ok) return;
     }
-    void runTask(`重置到 ${short(c)}`, (r) => api.reset(r, c.oid, mode), `已重置到 ${short(c)}`);
+    void runTask(t("重置到 {short}", { short: short(c) }), (r) => api.reset(r, c.oid, mode), t("已重置到 {short}", { short: short(c) }));
   };
 
   const indexing = status != null && !status.complete;
@@ -319,7 +320,7 @@ export function LogView() {
         if (!alive) return;
         useRepo.getState().clearLogJump();
         if (r == null) {
-          useRepo.getState().toast({ kind: "info", title: "Log 中找不到这个提交", detail: logJump.slice(0, 8) });
+          useRepo.getState().toast({ kind: "info", title: t("Log 中找不到这个提交"), detail: logJump.slice(0, 8) });
           return;
         }
         setSelected(r);
@@ -337,7 +338,7 @@ export function LogView() {
       .logRowOf(root, oid, key ? filter : null)
       .then((r) => {
         if (r == null) {
-          useRepo.getState().toast({ kind: "info", title: "该提交不在当前列表中", detail: "可能被过滤条件隐藏" });
+          useRepo.getState().toast({ kind: "info", title: t("该提交不在当前列表中"), detail: t("可能被过滤条件隐藏") });
           return;
         }
         setSelected(r);
@@ -379,11 +380,11 @@ export function LogView() {
         <div className="empty">{error}</div>
       ) : filtering ? (
         <div className="empty">
-          <span className="spinner inline" /> 正在过滤…
+          <span className="spinner inline" />{t("正在过滤…")}
         </div>
       ) : total === 0 ? (
         <div className="empty">
-          {filtered ? "没有符合过滤条件的提交" : status?.complete ? "还没有提交" : "正在读取提交历史…"}
+          {filtered ? t("没有符合过滤条件的提交") : status?.complete ? t("还没有提交") : t("正在读取提交历史…")}
         </div>
       ) : (
         <VirtualRows
@@ -450,7 +451,7 @@ export function LogView() {
       )}
       {total > 0 && (
         <>
-          <div className="log-split" onMouseDown={startResize} title="拖动调整高度" />
+          <div className="log-split" onMouseDown={startResize} title={t("拖动调整高度")} />
           <div className="log-details" style={{ height: detailsH }}>
             <CommitDetailsPane oid={cur?.oid ?? null} refs={cur?.refs ?? []} onJump={jumpTo} />
           </div>
@@ -459,15 +460,15 @@ export function LogView() {
       <div className="log-foot">
         <span>
           {filtered
-            ? `${total.toLocaleString()} 个匹配提交（共 ${(status?.total ?? 0).toLocaleString()} 个）`
-            : `${total.toLocaleString()} 个提交`}
+            ? t("{count} 个匹配提交（共 {total} 个）", { count: total.toLocaleString(), total: (status?.total ?? 0).toLocaleString() })
+            : t("{count} 个提交", { count: total.toLocaleString() })}
         </span>
         {indexing && (
           <span className="log-indexing">
-            <span className="spinner" /> 正在建立提交索引…
+            <span className="spinner" />{t("正在建立提交索引…")}
           </span>
         )}
-        {status?.error && <span className="log-error" title={status.error}>索引更新失败：{status.error}</span>}
+        {status?.error && <span className="log-error" title={status.error}>{t("索引更新失败：{error}", { error: status.error })}</span>}
         {error && total > 0 && <span className="log-error">{error}</span>}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.commit)} onClose={closeMenu} />}
@@ -480,8 +481,8 @@ export function LogView() {
             const c = dialog.commit;
             setDialog(null);
             if (dialog.kind === "branch")
-              void runTask(`新建分支 ${name}`, (r) => api.createBranch(r, name, c.oid, checkout), `已创建分支 ${name}`);
-            else void runTask(`新建标签 ${name}`, (r) => api.createTag(r, name, c.oid, message || null), `已创建标签 ${name}`);
+              void runTask(t("新建分支 {name}", { name }), (r) => api.createBranch(r, name, c.oid, checkout), t("已创建分支 {name}", { name }));
+            else void runTask(t("新建标签 {name}", { name }), (r) => api.createTag(r, name, c.oid, message || null), t("已创建标签 {name}", { name }));
           }}
         />
       )}

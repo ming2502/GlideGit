@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use glide_git_backend::GitCli;
+use glide_git_backend::{tr, GitCli};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,21 +36,47 @@ pub fn save(dir: &Path, settings: &Settings) -> std::io::Result<()> {
 }
 
 /// Which git the app runs, and why.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct GitInfo {
     pub version: String,
     pub path: String,
     /// The MinGit shipped with the app.
     pub bundled: bool,
-    /// Something to tell the user: the configured git does not run, or no
-    /// git was found at all (then `version` is empty).
-    pub error: Option<String>,
+    /// Something to tell the user (then `version` may be empty).
+    pub problem: Option<GitProblem>,
+}
+
+/// Found at start-up, put into words when the UI asks (its language is
+/// known by then).
+#[derive(Debug, Clone)]
+pub enum GitProblem {
+    /// The configured git does not run; another one is used.
+    ConfiguredFails(String),
+    /// No git at all.
+    NotFound(String),
+}
+
+impl GitProblem {
+    pub fn message(&self) -> String {
+        match self {
+            GitProblem::ConfiguredFails(e) => tr!(
+                "设置中指定的 git 无法运行（{e}），已改用自动找到的 git",
+                "The git set in the settings does not run ({e}); using the one found automatically"
+            ),
+            GitProblem::NotFound(e) => tr!(
+                "没有找到 git：{e}。请安装 git，或在设置中指定 git 的位置。",
+                "No git found: {e}. Install git, or set where it is in the settings."
+            ),
+        }
+    }
 }
 
 /// Pick the git to use: the configured one if it runs, else discovery
 /// (`bundled` last). `None` when there is no git at all.
-pub fn resolve_git(settings: &Settings, bundled: &[PathBuf]) -> (Option<GitCli>, Option<String>) {
+pub fn resolve_git(
+    settings: &Settings,
+    bundled: &[PathBuf],
+) -> (Option<GitCli>, Option<GitProblem>) {
     let mut error = None;
     if let Some(p) = settings
         .git_path
@@ -60,21 +86,12 @@ pub fn resolve_git(settings: &Settings, bundled: &[PathBuf]) -> (Option<GitCli>,
     {
         match GitCli::with_executable(p) {
             Ok(cli) => return (Some(cli), None),
-            Err(e) => {
-                error = Some(format!(
-                    "设置中指定的 git 无法运行（{e}），已改用自动找到的 git"
-                ))
-            }
+            Err(e) => error = Some(GitProblem::ConfiguredFails(e.to_string())),
         }
     }
     match GitCli::discover_with(bundled) {
         Ok(cli) => (Some(cli), error),
-        Err(e) => (
-            None,
-            Some(format!(
-                "没有找到 git：{e}。请安装 git，或在设置中指定 git 的位置。"
-            )),
-        ),
+        Err(e) => (None, Some(GitProblem::NotFound(e.to_string()))),
     }
 }
 
@@ -94,7 +111,7 @@ mod tests {
         // A configured git that does not run falls back to discovery, and says so.
         let (cli, error) = resolve_git(&s, &[]);
         assert!(cli.is_some());
-        assert!(error.unwrap().contains("无法运行"));
+        assert!(matches!(error, Some(GitProblem::ConfiguredFails(_))));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

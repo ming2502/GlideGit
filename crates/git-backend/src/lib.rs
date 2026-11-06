@@ -3,6 +3,7 @@
 
 mod cli;
 mod error;
+pub mod i18n;
 mod model;
 mod parse;
 mod repo;

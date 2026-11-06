@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { api, onAskpass, onAskpassDismiss } from "../api";
 import type { AskRequest } from "../bindings/AskRequest";
+import { t } from "../i18n";
 
 const useAsk = create<{ queue: AskRequest[] }>(() => ({ queue: [] }));
 
@@ -18,7 +19,7 @@ function respond(id: number, answer: string | null) {
 
 /** `https://min@github.com` → `github.com` for titles. */
 function hostOf(target: string | null): string {
-  if (!target) return "远端仓库";
+  if (!target) return t("远端仓库");
   try {
     return new URL(target).host || target;
   } catch {
@@ -58,27 +59,27 @@ export function AskpassDialog() {
   let secret = false;
   switch (req.kind) {
     case "username":
-      title = `登录 ${hostOf(req.target)}`;
-      label = "用户名";
+      title = t("登录 {hostOf}", { hostOf: hostOf(req.target) });
+      label = t("用户名");
       break;
     case "password":
-      title = `登录 ${hostOf(req.target)}`;
-      label = "密码或访问令牌";
+      title = t("登录 {hostOf}", { hostOf: hostOf(req.target) });
+      label = t("密码或访问令牌");
       secret = true;
       hint =
-        "GitHub、GitLab 等平台需要使用个人访问令牌（Personal Access Token）代替密码。" +
-        "如果配置了凭据助手（如 macOS 钥匙串、Git Credential Manager），验证成功后会由它保存。";
+        t("GitHub、GitLab 等平台需要使用个人访问令牌（Personal Access Token）代替密码。") +
+        t("如果配置了凭据助手（如 macOS 钥匙串、Git Credential Manager），验证成功后会由它保存。");
       break;
     case "passphrase":
-      title = "SSH 密钥口令";
-      label = req.target ? `密钥 ${req.target}` : "口令";
+      title = t("SSH 密钥口令");
+      label = req.target ? t("密钥 {target}", { target: req.target }) : t("口令");
       secret = true;
       break;
     case "confirm":
-      title = req.target ? `确认 SSH 主机 ${req.target}` : "需要确认";
+      title = req.target ? t("确认 SSH 主机 {target}", { target: req.target }) : t("需要确认");
       break;
     default:
-      title = "git 需要输入";
+      title = t("git 需要输入");
       label = req.prompt.trim();
   }
 
@@ -98,18 +99,18 @@ export function AskpassDialog() {
       >
         <h3>
           {title}
-          {queue.length > 1 && <span className="muted"> （还有 {queue.length - 1} 个请求）</span>}
+          {queue.length > 1 && <span className="muted">{" "}{t("（还有 {count} 个请求）", { count: queue.length - 1 })}</span>}
         </h3>
         {req.kind === "confirm" ? (
           <>
             <pre className="ask-prompt">{req.prompt.trim()}</pre>
-            <p className="muted">首次连接该主机。请核对指纹与服务商公布的一致后再信任。</p>
+            <p className="muted">{t("首次连接该主机。请核对指纹与服务商公布的一致后再信任。")}</p>
             <div className="dialog-actions">
               <button className="btn" onClick={() => respond(req.id, "no")}>
-                拒绝
+                {t("拒绝")}
               </button>
               <button ref={confirmRef} className="btn btn-primary" onClick={() => respond(req.id, "yes")}>
-                信任并继续
+                {t("信任并继续")}
               </button>
             </div>
           </>
@@ -136,10 +137,10 @@ export function AskpassDialog() {
             {hint && <p className="muted ask-hint">{hint}</p>}
             <div className="dialog-actions">
               <button type="button" className="btn" onClick={cancel}>
-                取消
+                {t("取消")}
               </button>
               <button type="submit" className="btn btn-primary">
-                继续
+                {t("继续")}
               </button>
             </div>
           </form>

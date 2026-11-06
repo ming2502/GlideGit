@@ -15,7 +15,7 @@
 - **远程**：Fetch、Pull、推送前预览、Force Push（with-lease），后台运行可取消；账号密码与 SSH 口令在应用内回答。
 - **撤销中心**：提交、切换分支、重置、回滚、搁置等操作都可以安全撤销。
 - **键盘优先**：IntelliJ IDEA 键位（可自定义），命令面板（⌘⇧A / Ctrl+Shift+A 或双击 Shift）。
-- **其他**：多仓库标签页、浅色 / 深色主题、应用内自动更新；Windows 安装包附带 MinGit，没装 git 也能用。
+- **其他**：中文 / 英文界面、多仓库标签页、浅色 / 深色主题、应用内自动更新；Windows 安装包附带 MinGit，没装 git 也能用。
 
 完整列表见 [CHANGELOG.md](CHANGELOG.md)。
 

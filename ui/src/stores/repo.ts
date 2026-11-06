@@ -8,6 +8,7 @@ import type { FileTexts } from "../bindings/FileTexts";
 import type { RepoSnapshot } from "../bindings/RepoSnapshot";
 import type { Changelists } from "../bindings/Changelists";
 import { load, save } from "../lib/storage";
+import { t } from "../i18n";
 
 export type View = "changes" | "log" | "stash";
 
@@ -139,7 +140,7 @@ interface RepoState {
 }
 
 /** "推送失败", but "Cherry-pick 1a2b3c4d 失败" after Latin text. */
-const failedTitle = (title: string) => (/[A-Za-z0-9]$/.test(title) ? `${title} 失败` : `${title}失败`);
+const failedTitle = (title: string) => (/[A-Za-z0-9]$/.test(title) ? t("{title} 失败", { title }) : t("{title}失败", { title }));
 
 let seq = 0;
 let diffSeq = 0;
@@ -198,7 +199,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       get().switchTab(root);
       set({ view: "changes" });
     } catch (e) {
-      get().toast({ kind: "error", title: "无法打开仓库", detail: errorMessage(e) });
+      get().toast({ kind: "error", title: t("无法打开仓库"), detail: errorMessage(e) });
     }
   },
 
@@ -304,7 +305,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     } catch (e) {
       if (mine === diffSeq) {
         set({ diff: null, diffLoading: false });
-        get().toast({ kind: "error", title: "无法加载 diff", detail: errorMessage(e) });
+        get().toast({ kind: "error", title: t("无法加载 diff"), detail: errorMessage(e) });
       }
     }
   },
@@ -322,7 +323,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       await (include ? api.stage(root, paths) : api.unstage(root, paths));
     } catch (e) {
       set({ pendingStage: {} });
-      get().toast({ kind: "error", title: include ? "Stage 失败" : "Unstage 失败", detail: errorMessage(e) });
+      get().toast({ kind: "error", title: include ? t("Stage 失败") : t("Unstage 失败"), detail: errorMessage(e) });
     }
   },
 
@@ -366,7 +367,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       if (success) get().toast({ kind: "success", title: success });
       return true;
     } catch (e) {
-      if (isCancelled(e)) get().toast({ kind: "info", title: `${title}已取消` });
+      if (isCancelled(e)) get().toast({ kind: "info", title: t("{title}已取消", { title }) });
       else get().toast({ kind: "error", title: failedTitle(title), detail: errorMessage(e) });
       return false;
     } finally {
@@ -413,7 +414,7 @@ export const useRepo = create<RepoState>((set, get) => ({
       const state = await api.changelists(root);
       if (get().root === root) set({ changelists: { root, state } });
     } catch (e) {
-      get().toast({ kind: "error", title: "无法读取 Changelist", detail: errorMessage(e) });
+      get().toast({ kind: "error", title: t("无法读取 Changelist"), detail: errorMessage(e) });
     }
   },
   updateChangelists(fn) {
@@ -423,7 +424,7 @@ export const useRepo = create<RepoState>((set, get) => ({
     if (next === cur.state) return;
     set({ changelists: { root: cur.root, state: next } });
     api.saveChangelists(cur.root, next).catch((e) =>
-      get().toast({ kind: "error", title: "Changelist 保存失败", detail: errorMessage(e) }),
+      get().toast({ kind: "error", title: t("Changelist 保存失败"), detail: errorMessage(e) }),
     );
   },
 

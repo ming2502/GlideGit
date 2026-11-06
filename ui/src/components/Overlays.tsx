@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 export function ConfirmDialog() {
   const req = useRepo((s) => s.confirm);
@@ -19,7 +20,7 @@ export function ConfirmDialog() {
         <p>{req.message}</p>
         <div className="dialog-actions">
           <button className="btn" onClick={() => req.resolve(false)}>
-            取消
+            {t("取消")}
           </button>
           <button
             ref={okRef}

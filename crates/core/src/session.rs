@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use glide_git_backend::{CancelToken, GitCli, GitError, Repo, RepoSnapshot};
+use glide_git_backend::{tr, CancelToken, GitCli, GitError, Repo, RepoSnapshot};
 use glide_log_index::{
     AuthorCount, IndexError, LogFilter, LogIndex, LogPage, LogStatus, UpdateKind,
 };
@@ -327,23 +327,23 @@ impl RepoSession {
     pub async fn undo(&self, id: u64) -> Result<String> {
         let log = self.oplog.clone();
         self.write(move |repo| {
-            let entry = log
-                .lock()
-                .unwrap()
-                .get(id)
-                .cloned()
-                .ok_or_else(|| GitError::Invalid("没有这条操作记录".into()))?;
+            let entry = log.lock().unwrap().get(id).cloned().ok_or_else(|| {
+                GitError::Invalid(tr!("没有这条操作记录", "No such operation in the log"))
+            })?;
             if entry.undone {
-                return Err(GitError::Invalid("这个操作已经撤销过了".into()));
+                return Err(GitError::Invalid(tr!(
+                    "这个操作已经撤销过了",
+                    "This operation was already undone"
+                )));
             }
             if entry.steps.is_empty() {
-                return Err(GitError::Invalid(
-                    entry.blocked.unwrap_or_else(|| "这个操作无法撤销".into()),
-                ));
+                return Err(GitError::Invalid(entry.blocked.unwrap_or_else(|| {
+                    tr!("这个操作无法撤销", "This operation cannot be undone")
+                })));
             }
             oplog::check(repo, &entry.steps).map_err(GitError::Invalid)?;
             let what = entry.undo.clone().unwrap_or_default();
-            let meta = OpMeta::new(OpKind::Undo, format!("撤销：{}", entry.title));
+            let meta = OpMeta::new(OpKind::Undo, tr!("撤销：{}", "Undo: {}", entry.title));
             record(repo, &log, meta, |r| oplog::run(r, &entry.steps))?;
             log.lock().unwrap().mark_undone(id);
             Ok(what)
@@ -399,7 +399,7 @@ fn record<T>(
     };
     let title = match &result {
         Ok(_) => meta.title,
-        Err(_) => format!("{}（未完成）", meta.title),
+        Err(_) => tr!("{}（未完成）", "{} (not finished)", meta.title),
     };
     log.lock().unwrap().push(OpEntry {
         id: 0,

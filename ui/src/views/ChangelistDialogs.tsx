@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Changelists } from "../bindings/Changelists";
 import { findByName } from "../lib/changelists";
 import { Dialog } from "./LogDialogs";
+import { t } from "../i18n";
 
 function useAutoFocus() {
   const ref = useRef<HTMLInputElement>(null);
@@ -42,8 +43,8 @@ export function MoveDialog({
   const canSubmit = choice !== "__new" || name.trim().length > 0;
   return (
     <Dialog
-      title="移动到另一个 Changelist"
-      submitLabel="移动"
+      title={t("移动到另一个 Changelist")}
+      submitLabel={t("移动")}
       canSubmit={canSubmit}
       onCancel={onCancel}
       onSubmit={() => {
@@ -54,24 +55,24 @@ export function MoveDialog({
         }
       }}
     >
-      <div className="muted cl-dialog-note">{count === 1 ? "移动 1 个文件" : `移动 ${count} 个文件`}</div>
+      <div className="muted cl-dialog-note">{count === 1 ? t("移动 1 个文件") : t("移动 {count} 个文件", { count })}</div>
       <div className="cl-choices" role="radiogroup">
         {others.map((l) => (
           <label key={l.id} className="log-dialog-check">
             <input type="radio" name="cl" checked={choice === l.id} onChange={() => setChoice(l.id)} />
             {l.name}
-            {l.id === state.active && <span className="muted">（活动）</span>}
+            {l.id === state.active && <span className="muted">{t("（活动）")}</span>}
           </label>
         ))}
         <label className="log-dialog-check">
           <input type="radio" name="cl" checked={choice === "__new"} onChange={() => setChoice("__new")} />
-          新建 Changelist
+          {t("新建 Changelist")}
         </label>
       </div>
       {choice === "__new" && (
         <label className="log-dialog-field">
-          <span>名称</span>
-          <input ref={input} className="lf-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：解析器重构" />
+          <span>{t("名称")}</span>
+          <input ref={input} className="lf-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("例如：解析器重构")} />
         </label>
       )}
     </Dialog>
@@ -105,20 +106,20 @@ export function NameDialog({
   return (
     <Dialog
       title={title}
-      submitLabel="确定"
+      submitLabel={t("确定")}
       canSubmit={name.trim().length > 0 && !taken}
       onCancel={onCancel}
       onSubmit={() => onSubmit(name.trim(), makeActive)}
     >
       <label className="log-dialog-field">
-        <span>名称</span>
+        <span>{t("名称")}</span>
         <input ref={input} className="lf-input" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      {taken && <div className="log-dialog-error">已有同名的 Changelist</div>}
+      {taken && <div className="log-dialog-error">{t("已有同名的 Changelist")}</div>}
       {activeOption && (
         <label className="log-dialog-check">
           <input type="checkbox" checked={makeActive} onChange={(e) => setMakeActive(e.target.checked)} />
-          设为活动 Changelist（新的修改会归入它）
+          {t("设为活动 Changelist（新的修改会归入它）")}
         </label>
       )}
     </Dialog>
@@ -140,12 +141,12 @@ export function ShelveDialog({
   const [name, setName] = useState(initial);
   const input = useAutoFocus();
   return (
-    <Dialog title="搁置修改（Shelve）" submitLabel="搁置" canSubmit={name.trim().length > 0} onCancel={onCancel} onSubmit={() => onSubmit(name.trim())}>
+    <Dialog title={t("搁置修改（Shelve）")} submitLabel={t("搁置")} canSubmit={name.trim().length > 0} onCancel={onCancel} onSubmit={() => onSubmit(name.trim())}>
       <div className="muted cl-dialog-note">
-        {count} 个文件的修改会保存到 Shelf，并从工作区还原到 HEAD。之后可在 Stash 视图的 Shelf 页取回（可在撤销中心撤销）。
+        {t("{count} 个文件的修改会保存到 Shelf，并从工作区还原到 HEAD。之后可在 Stash 视图的 Shelf 页取回（可在撤销中心撤销）。", { count })}
       </div>
       <label className="log-dialog-field">
-        <span>说明</span>
+        <span>{t("说明")}</span>
         <input ref={input} className="lf-input" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
     </Dialog>

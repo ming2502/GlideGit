@@ -4,6 +4,7 @@ import type { PushPreview } from "../bindings/PushPreview";
 import { relativeTime } from "../lib/format";
 import { formatKeys } from "../actions/registry";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 /** IDEA-style push dialog: shows exactly what will be sent before pushing. */
 export function PushDialog() {
@@ -46,7 +47,7 @@ export function PushDialog() {
     close();
     await useRepo
       .getState()
-      .runRemote("推送", (r, id) => api.push(r, lease, id), `已推送到 ${preview?.target ?? "远端"}`);
+      .runRemote(t("推送"), (r, id) => api.push(r, lease, id), t("已推送到 {target}", { target: preview?.target ?? t("远端") }));
   }
 
   return (
@@ -67,30 +68,29 @@ export function PushDialog() {
           <p className="error-text">{error}</p>
         ) : !preview ? (
           <div className="push-loading">
-            <span className="spinner" /> 正在计算待推送的提交…
+            <span className="spinner" />{t("正在计算待推送的提交…")}
           </div>
         ) : !preview.branch ? (
-          <p>当前处于 detached HEAD，无法推送。请先切换到分支。</p>
+          <p>{t("当前处于 detached HEAD，无法推送。请先切换到分支。")}</p>
         ) : !preview.remote ? (
-          <p>仓库还没有配置远端（remote），无法推送。</p>
+          <p>{t("仓库还没有配置远端（remote），无法推送。")}</p>
         ) : (
           <>
             <div className="push-target">
               <b>{preview.branch}</b>
               <span className="muted">→</span>
               <b>{preview.target}</b>
-              {preview.newBranch && <span className="pill">新分支</span>}
+              {preview.newBranch && <span className="pill">{t("新分支")}</span>}
             </div>
             {preview.behind > 0 && (
               <div className="push-warn">
-                远端有 {preview.behind} 个本地没有的提交，普通推送会被拒绝。建议先 Pull；
-                确实要覆盖时勾选下方的 Force Push。
+                {t("远端有 {behind} 个本地没有的提交，普通推送会被拒绝。建议先 Pull； 确实要覆盖时勾选下方的 Force Push。", { behind: preview.behind })}
               </div>
             )}
             <div className="push-commits">
               {preview.commits.length === 0 ? (
                 <div className="empty">
-                  {preview.newBranch ? "没有新提交，将在远端创建该分支" : "没有需要推送的提交"}
+                  {preview.newBranch ? t("没有新提交，将在远端创建该分支") : t("没有需要推送的提交")}
                 </div>
               ) : (
                 preview.commits.map((c) => (
@@ -105,13 +105,13 @@ export function PushDialog() {
             </div>
             <label className="opt">
               <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-              Force Push（--force-with-lease：只在远端未被他人更新时覆盖）
+              {t("Force Push（--force-with-lease：只在远端未被他人更新时覆盖）")}
             </label>
           </>
         )}
         <div className="dialog-actions">
           <button className="btn" onClick={close}>
-            取消
+            {t("取消")}
           </button>
           <button
             ref={pushRef}
@@ -120,7 +120,7 @@ export function PushDialog() {
             onClick={() => void push()}
           >
             {force ? "Force Push" : "Push"}
-            {preview && preview.commits.length > 0 && ` ${preview.commits.length} 个提交`}
+            {preview && preview.commits.length > 0 && t(" {count} 个提交", { count: preview.commits.length })}
             <span className="kbd">{formatKeys(["mod+enter"])}</span>
           </button>
         </div>

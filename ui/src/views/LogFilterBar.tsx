@@ -6,6 +6,7 @@ import { defineActions, useActions } from "../actions/registry";
 import type { AuthorCount } from "../bindings/AuthorCount";
 import type { LogFilter } from "../bindings/LogFilter";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 /** This view's actions (declared up front so the shortcut settings list them). */
 const LOG_FILTER_ACTIONS = defineActions([
@@ -73,7 +74,7 @@ function Dropdown({
 
 function summary(name: string, values: string[]): string {
   if (!values.length) return name;
-  return values.length === 1 ? `${name}: ${values[0]}` : `${name}: ${values[0]} 等 ${values.length} 项`;
+  return values.length === 1 ? `${name}: ${values[0]}` : t("{name}: {first} 等 {count} 项", { name, first: values[0], count: values.length });
 }
 
 const shortRef = (r: string) => r.replace(/^refs\/(heads|remotes)\//, "");
@@ -83,7 +84,7 @@ function BranchPanel({ value, onChange }: { value: string[]; onChange: (v: strin
   const [q, setQ] = useState("");
   const items = useMemo(() => {
     const all = [
-      { ref: "HEAD", name: "HEAD（当前分支）" },
+      { ref: "HEAD", name: t("HEAD（当前分支）") },
       ...(branches?.local ?? []).map((b) => ({ ref: b.fullRef, name: b.name })),
       ...(branches?.remote ?? []).map((b) => ({ ref: b.fullRef, name: b.name })),
     ];
@@ -93,7 +94,7 @@ function BranchPanel({ value, onChange }: { value: string[]; onChange: (v: strin
   const toggle = (ref: string) => onChange(value.includes(ref) ? value.filter((r) => r !== ref) : [...value, ref]);
   return (
     <>
-      <input className="lf-input" autoFocus placeholder="搜索分支" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="lf-input" autoFocus placeholder={t("搜索分支")} value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="lf-list">
         {items.map((b) => (
           <label key={b.ref} className="lf-item">
@@ -101,7 +102,7 @@ function BranchPanel({ value, onChange }: { value: string[]; onChange: (v: strin
             <span className="lf-item-text">{b.name}</span>
           </label>
         ))}
-        {!items.length && <div className="lf-none">没有匹配的分支</div>}
+        {!items.length && <div className="lf-none">{t("没有匹配的分支")}</div>}
       </div>
     </>
   );
@@ -130,7 +131,7 @@ function AuthorPanel({ value, onChange }: { value: string[]; onChange: (v: strin
       <input
         className="lf-input"
         autoFocus
-        placeholder="姓名或邮箱，回车按输入内容过滤"
+        placeholder={t("姓名或邮箱，回车按输入内容过滤")}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
@@ -165,10 +166,10 @@ function AuthorPanel({ value, onChange }: { value: string[]; onChange: (v: strin
 
 const DAY = 86400;
 const DATE_PRESETS: [string, number][] = [
-  ["最近 24 小时", DAY],
-  ["最近 7 天", 7 * DAY],
-  ["最近 30 天", 30 * DAY],
-  ["最近一年", 365 * DAY],
+  [t("最近 24 小时"), DAY],
+  [t("最近 7 天"), 7 * DAY],
+  [t("最近 30 天"), 30 * DAY],
+  [t("最近一年"), 365 * DAY],
 ];
 
 const toDateInput = (t: number | null) => (t == null ? "" : new Date(t * 1000).toISOString().slice(0, 10));
@@ -190,7 +191,7 @@ function DatePanel({
   return (
     <div className="lf-dates">
       <button className="lf-option" onClick={() => (onChange(null, null), close())}>
-        不限
+        {t("不限")}
       </button>
       {DATE_PRESETS.map(([label, secs]) => (
         <button key={label} className="lf-option" onClick={() => (onChange(now - secs, null), close())}>
@@ -199,10 +200,10 @@ function DatePanel({
       ))}
       <div className="lf-range">
         <label>
-          从 <input type="date" value={toDateInput(since)} onChange={(e) => onChange(fromDateInput(e.target.value, false), until)} />
+          {t("从")}<input type="date" value={toDateInput(since)} onChange={(e) => onChange(fromDateInput(e.target.value, false), until)} />
         </label>
         <label>
-          到 <input type="date" value={toDateInput(until)} onChange={(e) => onChange(since, fromDateInput(e.target.value, true))} />
+          {t("到")}<input type="date" value={toDateInput(until)} onChange={(e) => onChange(since, fromDateInput(e.target.value, true))} />
         </label>
       </div>
     </div>
@@ -226,7 +227,7 @@ function PathPanel({ value, onChange, close }: { value: string[]; onChange: (v: 
         className="lf-input lf-paths"
         autoFocus
         rows={4}
-        placeholder={"每行一个文件或目录，相对仓库根目录\n例如 src/main.rs"}
+        placeholder={t("每行一个文件或目录，相对仓库根目录\n例如 src/main.rs")}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -235,10 +236,10 @@ function PathPanel({ value, onChange, close }: { value: string[]; onChange: (v: 
       />
       <div className="lf-actions">
         <button className="btn" onClick={() => (onChange([]), close())}>
-          清除
+          {t("清除")}
         </button>
         <button className="btn btn-primary" onClick={apply}>
-          应用
+          {t("应用")}
         </button>
       </div>
     </>
@@ -246,13 +247,13 @@ function PathPanel({ value, onChange, close }: { value: string[]; onChange: (v: 
 }
 
 function dateSummary(since: number | null, until: number | null): string {
-  if (since == null && until == null) return "日期";
+  if (since == null && until == null) return t("日期");
   const now = Math.floor(Date.now() / 1000);
   if (until == null && since != null) {
     const preset = DATE_PRESETS.find(([, secs]) => Math.abs(now - secs - since) < 3600);
-    if (preset) return `日期: ${preset[0]}`;
+    if (preset) return t("日期: {date}", { date: preset[0] });
   }
-  return `日期: ${toDateInput(since) || "…"} ~ ${toDateInput(until) || "今天"}`;
+  return t("日期: {from} ~ {to}", { from: toDateInput(since) || "…", to: toDateInput(until) || t("今天") });
 }
 
 export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange: (f: LogFilter) => void }) {
@@ -283,7 +284,7 @@ export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange
       <input
         ref={input}
         className="lf-search"
-        placeholder="搜索提交信息或 hash（⌘F）"
+        placeholder={t("搜索提交信息或 hash（⌘F）")}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -294,10 +295,10 @@ export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange
           }
         }}
       />
-      <Dropdown label={summary("分支", filter.branches.map(shortRef))} active={filter.branches.length > 0}>
+      <Dropdown label={summary(t("分支"), filter.branches.map(shortRef))} active={filter.branches.length > 0}>
         {() => <BranchPanel value={filter.branches} onChange={(branches) => set({ branches })} />}
       </Dropdown>
-      <Dropdown label={summary("作者", filter.authors)} active={filter.authors.length > 0} width={340}>
+      <Dropdown label={summary(t("作者"), filter.authors)} active={filter.authors.length > 0} width={340}>
         {() => <AuthorPanel value={filter.authors} onChange={(authors) => set({ authors })} />}
       </Dropdown>
       <Dropdown label={dateSummary(filter.since, filter.until)} active={filter.since != null || filter.until != null} width={240}>
@@ -305,12 +306,12 @@ export function LogFilterBar({ filter, onChange }: { filter: LogFilter; onChange
           <DatePanel since={filter.since} until={filter.until} onChange={(since, until) => set({ since, until })} close={close} />
         )}
       </Dropdown>
-      <Dropdown label={summary("路径", filter.paths)} active={filter.paths.length > 0} width={320}>
+      <Dropdown label={summary(t("路径"), filter.paths)} active={filter.paths.length > 0} width={320}>
         {(close) => <PathPanel value={filter.paths} onChange={(paths) => set({ paths })} close={close} />}
       </Dropdown>
       {!isFilterEmpty(filter) && (
-        <button className="lf-clear" onClick={() => onChange(EMPTY_FILTER)} title="清除所有过滤条件">
-          清除
+        <button className="lf-clear" onClick={() => onChange(EMPTY_FILTER)} title={t("清除所有过滤条件")}>
+          {t("清除")}
         </button>
       )}
     </div>

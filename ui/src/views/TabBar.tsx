@@ -5,6 +5,7 @@ import { ContextMenu } from "../components/ContextMenu";
 import { repoName } from "../lib/format";
 import { useRepo, type RepoTab } from "../stores/repo";
 import { pickRepository } from "./Chrome";
+import { t } from "../i18n";
 
 export function TabBar() {
   const tabs = useRepo((s) => s.tabs);
@@ -26,44 +27,44 @@ export function TabBar() {
 
   return (
     <div className="tabbar" role="tablist" data-tauri-drag-region>
-      {tabs.map((t) => {
-        const head = t.snapshot.head;
-        const changes = t.snapshot.changes.length;
+      {tabs.map((tab) => {
+        const head = tab.snapshot.head;
+        const changes = tab.snapshot.changes.length;
         return (
           <div
-            key={t.root}
+            key={tab.root}
             role="tab"
-            aria-selected={t.root === active}
-            className={`repo-tab ${t.root === active ? "on" : ""}`}
-            title={t.root}
+            aria-selected={tab.root === active}
+            className={`repo-tab ${tab.root === active ? "on" : ""}`}
+            title={tab.root}
             onMouseDown={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
-                void closeTab(t.root);
-              } else if (e.button === 0) switchTab(t.root);
+                void closeTab(tab.root);
+              } else if (e.button === 0) switchTab(tab.root);
             }}
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenu({ x: e.clientX, y: e.clientY, tab: t });
+              setMenu({ x: e.clientX, y: e.clientY, tab });
             }}
           >
-            {busyRepos.has(t.root) && <span className="spinner tab-spinner" />}
-            <span className="tab-name">{label(t.root)}</span>
+            {busyRepos.has(tab.root) && <span className="spinner tab-spinner" />}
+            <span className="tab-name">{label(tab.root)}</span>
             <span className="tab-branch">{head.branch ?? head.oid?.slice(0, 7) ?? ""}</span>
             {changes > 0 && <span className="tab-count">{changes}</span>}
             <button
               className="tab-close"
-              aria-label={`关闭 ${repoName(t.root)}`}
+              aria-label={t("关闭 {repoName}", { repoName: repoName(tab.root) })}
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => void closeTab(t.root)}
+              onClick={() => void closeTab(tab.root)}
             >
               ✕
             </button>
           </div>
         );
       })}
-      <button className="tab-add" title={`打开仓库 ${shortcutOf("repo.open")}`} onClick={() => void pickRepository()}>
-        ＋
+      <button className="tab-add" title={t("打开仓库 {shortcutOf}", { shortcutOf: shortcutOf("repo.open") })} onClick={() => void pickRepository()}>
+        {t("＋")}
       </button>
       <span className="spacer" data-tauri-drag-region />
       {menu && (
@@ -72,9 +73,9 @@ export function TabBar() {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: "关闭", onClick: () => void closeTab(menu.tab.root) },
+            { label: t("关闭"), onClick: () => void closeTab(menu.tab.root) },
             {
-              label: "关闭其他标签",
+              label: t("关闭其他标签"),
               disabled: tabs.length < 2,
               onClick: () => {
                 for (const t of tabs) if (t.root !== menu.tab.root) void closeTab(t.root);
@@ -82,7 +83,7 @@ export function TabBar() {
               },
             },
             "separator",
-            { label: "复制路径", onClick: () => void navigator.clipboard.writeText(menu.tab.root) },
+            { label: t("复制路径"), onClick: () => void navigator.clipboard.writeText(menu.tab.root) },
           ]}
         />
       )}

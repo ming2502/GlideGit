@@ -10,6 +10,7 @@ import { VirtualList } from "../components/VirtualList";
 import { splitPath } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { TextsDiff } from "./DiffView";
+import { locale, t } from "../i18n";
 
 const ROW_H = 24;
 /** Wait this long after the selection settles before asking git. */
@@ -45,7 +46,7 @@ function groupByDir(files: CommitFile[]): Row[] {
   return rows;
 }
 
-const fmtTime = (t: number) => new Date(t * 1000).toLocaleString();
+const fmtTime = (time: number) => new Date(time * 1000).toLocaleString(locale);
 
 const defaultTexts = (root: string, d: CommitDetails, f: CommitFile) =>
   api.commitFileTexts(root, d.oid, d.parents[0] ?? null, f.path, f.origPath);
@@ -115,12 +116,12 @@ export function CommitDetailsPane({
     };
   }, [root, current, file, loadTexts]);
 
-  if (!oid) return <div className="cd-empty muted">选择一个提交查看详情</div>;
+  if (!oid) return <div className="cd-empty muted">{t("选择一个提交查看详情")}</div>;
   if (error && !current) return <div className="cd-empty">{error}</div>;
   if (!current) {
     return (
       <div className="cd-empty muted">
-        <span className="spinner inline" /> 正在读取提交…
+        <span className="spinner inline" />{t("正在读取提交…")}
       </div>
     );
   }
@@ -143,8 +144,8 @@ export function CommitDetailsPane({
   const copy = (text: string) =>
     void navigator.clipboard
       .writeText(text)
-      .then(() => toast({ kind: "success", title: "已复制提交 hash" }))
-      .catch(() => toast({ kind: "error", title: "无法访问剪贴板" }));
+      .then(() => toast({ kind: "success", title: t("已复制提交 hash") }))
+      .catch(() => toast({ kind: "error", title: t("无法访问剪贴板") }));
 
   return (
     <div className="cd">
@@ -164,18 +165,18 @@ export function CommitDetailsPane({
             </div>
             {!sameCommitter && (
               <div className="muted">
-                提交者 {current.committerName} &lt;{current.committerEmail}&gt; · {fmtTime(current.committerTime)}
+                {t("提交者 {committerName} <{committerEmail}> · {fmtTime}", { committerName: current.committerName, committerEmail: current.committerEmail, fmtTime: fmtTime(current.committerTime) })}
               </div>
             )}
             <div className="cd-hashes">
-              <button className="cd-hash mono" title="复制完整 hash" onClick={() => copy(current.oid)}>
+              <button className="cd-hash mono" title={t("复制完整 hash")} onClick={() => copy(current.oid)}>
                 {current.oid.slice(0, 10)}
               </button>
               {!hideParents && current.parents.length > 0 && (
-                <span className="muted">{current.parents.length > 1 ? "父提交（合并）" : "父提交"}</span>
+                <span className="muted">{current.parents.length > 1 ? t("父提交（合并）") : t("父提交")}</span>
               )}
               {(hideParents ? [] : current.parents).map((p) => (
-                <button key={p} className="cd-parent mono" title="在 Log 中定位" onClick={() => onJump(p)}>
+                <button key={p} className="cd-parent mono" title={t("在 Log 中定位")} onClick={() => onJump(p)}>
                   {p.slice(0, 8)}
                 </button>
               ))}
@@ -184,14 +185,14 @@ export function CommitDetailsPane({
           {body.join("\n").trim() && <pre className="cd-body">{body.join("\n").trim()}</pre>}
         </div>
         <div className="cd-files-head">
-          <span>{current.files.length.toLocaleString()} 个文件</span>
+          <span>{t("{count} 个文件", { count: current.files.length.toLocaleString() })}</span>
           <span className="diff-stats">
             <span className="add">+{added.toLocaleString()}</span> <span className="del">−{deleted.toLocaleString()}</span>
           </span>
-          {!hideParents && current.parents.length > 1 && <span className="muted">与第一个父提交比较</span>}
+          {!hideParents && current.parents.length > 1 && <span className="muted">{t("与第一个父提交比较")}</span>}
         </div>
         {rows.length === 0 ? (
-          <div className="cd-empty muted">没有文件变化</div>
+          <div className="cd-empty muted">{t("没有文件变化")}</div>
         ) : (
           <VirtualList
             items={rows}
@@ -224,9 +225,9 @@ export function CommitDetailsPane({
                   {f.origPath && <span className="fdir">← {f.origPath}</span>}
                   <span className="spacer" />
                   {f.kind === "untracked" ? (
-                    <span className="muted">未跟踪</span>
+                    <span className="muted">{t("未跟踪")}</span>
                   ) : f.added == null ? (
-                    <span className="muted">二进制</span>
+                    <span className="muted">{t("二进制")}</span>
                   ) : (
                     <span className="diff-stats">
                       <span className="add">+{f.added}</span> <span className="del">−{f.deleted}</span>
@@ -250,10 +251,10 @@ export function CommitDetailsPane({
             path={file.path}
             texts={diff && diff.path === file.path ? diff : null}
             loading={diffLoading}
-            label={`${current.parents[0]?.slice(0, 8) ?? "空"} ↔ ${current.oid.slice(0, 8)}`}
+            label={`${current.parents[0]?.slice(0, 8) ?? t("空")} ↔ ${current.oid.slice(0, 8)}`}
           />
         ) : (
-          <div className="diff-empty">选择一个文件查看差异</div>
+          <div className="diff-empty">{t("选择一个文件查看差异")}</div>
         )}
       </div>
     </div>

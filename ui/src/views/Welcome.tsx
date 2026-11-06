@@ -3,6 +3,7 @@ import type { AppInfo } from "../api";
 import { repoName } from "../lib/format";
 import { useRepo } from "../stores/repo";
 import { pickRepository } from "./Chrome";
+import { t } from "../i18n";
 
 export function Welcome({ info }: { info: AppInfo | null }) {
   const gitVersion = info?.gitVersion ?? "";
@@ -36,18 +37,18 @@ export function Welcome({ info }: { info: AppInfo | null }) {
           <div className="welcome-git-error">
             <p>{info.gitError}</p>
             <button className="btn btn-sm" onClick={() => useRepo.getState().setSettings("git")}>
-              打开 Git 设置
+              {t("打开 Git 设置")}
             </button>
           </div>
         ) : (
-          <p className="muted">{gitVersion ? `git ${gitVersion}` : "正在检测 git…"}</p>
+          <p className="muted">{gitVersion ? `git ${gitVersion}` : t("正在检测 git…")}</p>
         )}
         <button className="btn btn-primary btn-lg" onClick={() => void pickRepository()}>
-          打开仓库… <span className="kbd">{shortcutOf("repo.open")}</span>
+          {t("打开仓库…")}<span className="kbd">{shortcutOf("repo.open")}</span>
         </button>
         {recent.length > 0 && (
           <div className="recent">
-            <div className="recent-title muted">最近打开</div>
+            <div className="recent-title muted">{t("最近打开")}</div>
             {recent.map((r) => (
               <button key={r} className="recent-item" onClick={() => void openRepo(r)}>
                 <b>{repoName(r)}</b>

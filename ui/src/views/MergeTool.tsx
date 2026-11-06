@@ -18,6 +18,7 @@ import type { ConflictTexts } from "../bindings/ConflictTexts";
 import { editorLook, loadLanguage } from "../components/CodeDiff";
 import { joinLines, merge3, type Merge3, type Region } from "../lib/merge3";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 type Side = "ours" | "theirs";
 
@@ -153,11 +154,11 @@ export function MergeTool() {
 
   if (!path) return null;
   return (
-    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={`合并 ${path}`}>
+    <div className="mt-overlay" role="dialog" aria-modal="true" aria-label={t("合并 {path}", { path })}>
       {error ? (
         <MergeMessage path={path} message={error} onClose={() => close(null)} />
       ) : !texts ? (
-        <MergeMessage path={path} message="正在读取冲突…" onClose={() => close(null)} />
+        <MergeMessage path={path} message={t("正在读取冲突…")} onClose={() => close(null)} />
       ) : texts.binary || texts.tooLarge || texts.lossy || texts.ours == null || texts.theirs == null ? (
         <WholeFileChoice texts={texts} onClose={() => close(null)} />
       ) : (
@@ -174,7 +175,7 @@ function MergeMessage({ path, message, onClose }: { path: string; message: strin
         <b>{path}</b>
         <span className="spacer" />
         <button className="btn btn-sm" onClick={onClose}>
-          关闭
+          {t("关闭")}
         </button>
       </div>
       <div className="diff-empty">{message}</div>
@@ -185,17 +186,18 @@ function MergeMessage({ path, message, onClose }: { path: string; message: strin
 /** Binary, oversized or delete/modify conflicts: pick a side as a whole. */
 function WholeFileChoice({ texts, onClose }: { texts: ConflictTexts; onClose: () => void }) {
   const runTask = useRepo((s) => s.runTask);
-  const describe = (t: string | null, label: string) => `${label}：${t == null ? "已删除此文件" : "修改了此文件"}`;
+  const describe = (text: string | null, label: string) =>
+    t("{label}：{state}", { label, state: text == null ? t("已删除此文件") : t("修改了此文件") });
   const why = texts.binary
-    ? "二进制文件无法逐行合并。"
+    ? t("二进制文件无法逐行合并。")
     : texts.tooLarge
-      ? "文件超过 8 MB，无法在合并工具中打开。"
+      ? t("文件超过 8 MB，无法在合并工具中打开。")
       : texts.lossy
-        ? "文件不是 UTF-8 文本，或含有单独的 CR 换行，逐行合并可能损坏内容。"
-        : "一方修改了文件，另一方删除了它。";
+        ? t("文件不是 UTF-8 文本，或含有单独的 CR 换行，逐行合并可能损坏内容。")
+        : t("一方修改了文件，另一方删除了它。");
   const take = (side: "ours" | "theirs") => {
     onClose();
-    void runTask(`解决 ${texts.path}`, (r) => api.resolveWithSide(r, texts.path, side), `已解决 ${texts.path}`);
+    void runTask(t("解决 {path}", { path: texts.path }), (r) => api.resolveWithSide(r, texts.path, side), t("已解决 {path}", { path: texts.path }));
   };
   return (
     <div className="mt-window mt-small">
@@ -203,20 +205,20 @@ function WholeFileChoice({ texts, onClose }: { texts: ConflictTexts; onClose: ()
         <b>{texts.path}</b>
       </div>
       <div className="mt-choice">
-        <p>{why}请选择保留哪一方的版本：</p>
+        <p>{t("{why}请选择保留哪一方的版本：", { why })}</p>
         <ul>
           <li>{describe(texts.ours, texts.oursLabel)}</li>
           <li>{describe(texts.theirs, texts.theirsLabel)}</li>
         </ul>
         <div className="dialog-actions">
           <button className="btn" onClick={onClose}>
-            取消
+            {t("取消")}
           </button>
           <button className="btn" onClick={() => take("ours")}>
-            采用左侧（{texts.oursLabel}）
+            {t("采用左侧（{oursLabel}）", { oursLabel: texts.oursLabel })}
           </button>
           <button className="btn btn-primary" onClick={() => take("theirs")}>
-            采用右侧（{texts.theirsLabel}）
+            {t("采用右侧（{theirsLabel}）", { theirsLabel: texts.theirsLabel })}
           </button>
         </div>
       </div>
@@ -397,8 +399,8 @@ function MergeEditor({ texts, onClose }: { texts: ConflictTexts; onClose: () => 
         lineRange(state, r[side][0], r[side][1], `mt-${r.kind}${done ? " mt-done" : ""}`, out);
         if (!done) {
           const pos = state.doc.line(buttonLine(state, r[side][0])).from;
-          btns.push(new ButtonMarker(side === "ours" ? "»" : "«", side === "ours" ? "采用左侧的修改" : "采用右侧的修改", "mt-apply").range(pos));
-          btns.push(new ButtonMarker("×", "忽略这一侧的修改", "mt-ignore").range(pos));
+          btns.push(new ButtonMarker(side === "ours" ? "»" : "«", side === "ours" ? t("采用左侧的修改") : t("采用右侧的修改"), "mt-apply").range(pos));
+          btns.push(new ButtonMarker("×", t("忽略这一侧的修改"), "mt-ignore").range(pos));
         }
       });
       return { decos: Decoration.set(out, true), btns: RangeSet.of(btns, true) };
@@ -440,20 +442,20 @@ function MergeEditor({ texts, onClose }: { texts: ConflictTexts; onClose: () => 
     if (!v) return;
     if (remaining > 0) {
       const ok = await ask({
-        title: "还有冲突未处理",
-        message: `还有 ${remaining} 处冲突没有选择任何一方，这些位置将保留共同祖先的内容。确定要保存并标记为已解决吗？`,
-        confirmLabel: "保存",
+        title: t("还有冲突未处理"),
+        message: t("还有 {remaining} 处冲突没有选择任何一方，这些位置将保留共同祖先的内容。确定要保存并标记为已解决吗？", { remaining }),
+        confirmLabel: t("保存"),
       });
       if (!ok) return;
     }
     const content = v.mid.state.doc.toString();
     onClose();
-    void runTask(`解决 ${texts.path}`, (r) => api.resolveConflict(r, texts.path, content), `已解决 ${texts.path}`);
+    void runTask(t("解决 {path}", { path: texts.path }), (r) => api.resolveConflict(r, texts.path, content), t("已解决 {path}", { path: texts.path }));
   };
 
   const cancel = async () => {
     if (dirty) {
-      const ok = await ask({ title: "放弃合并结果？", message: "当前的合并结果不会保存，文件仍处于冲突状态。", confirmLabel: "放弃", danger: true });
+      const ok = await ask({ title: t("放弃合并结果？"), message: t("当前的合并结果不会保存，文件仍处于冲突状态。"), confirmLabel: t("放弃"), danger: true });
       if (!ok) return;
     }
     onClose();
@@ -472,39 +474,39 @@ function MergeEditor({ texts, onClose }: { texts: ConflictTexts; onClose: () => 
   return (
     <div className="mt-window" onKeyDown={onKey}>
       <div className="mt-header">
-        <b>合并 {texts.path}</b>
+        <b>{t("合并 {path}", { path: texts.path })}</b>
         <span className="muted">
-          {m.regions.length} 处修改，{conflicts} 个冲突
-          {remaining > 0 ? `，还剩 ${remaining} 个未处理` : conflicts > 0 ? "，冲突已全部处理" : ""}
+          {t("{changes} 处修改，{conflicts} 个冲突", { changes: m.regions.length, conflicts })}
+          {remaining > 0 ? t("，还剩 {remaining} 个未处理", { remaining }) : conflicts > 0 ? t("，冲突已全部处理") : ""}
         </span>
         <span className="spacer" />
-        <button className="btn btn-sm" onClick={wand} disabled={pending === 0} title="一次性应用所有不冲突的修改">
-          ✦ 应用不冲突的修改{pending > 0 ? `（${pending}）` : ""}
+        <button className="btn btn-sm" onClick={wand} disabled={pending === 0} title={t("一次性应用所有不冲突的修改")}>
+          {t("✦ 应用不冲突的修改")}{pending > 0 ? t("（{pending}）", { pending }) : ""}
         </button>
-        <button className="icon-btn" title="上一个未处理的修改（⇧F7）" onClick={() => go(-1)}>
+        <button className="icon-btn" title={t("上一个未处理的修改（⇧F7）")} onClick={() => go(-1)}>
           ↑
         </button>
-        <button className="icon-btn" title="下一个未处理的修改（F7）" onClick={() => go(1)}>
+        <button className="icon-btn" title={t("下一个未处理的修改（F7）")} onClick={() => go(1)}>
           ↓
         </button>
         <button className="btn btn-sm" onClick={() => void cancel()}>
-          取消
+          {t("取消")}
         </button>
         <button className="btn btn-sm btn-primary" onClick={() => void save()} title="⌘↩ / Ctrl+Enter">
-          保存并标记为已解决
+          {t("保存并标记为已解决")}
         </button>
       </div>
       <div className="mt-columns">
         <div className="mt-col">
-          <div className="mt-col-head">左侧（我们的）：{texts.oursLabel}</div>
+          <div className="mt-col-head">{t("左侧（我们的）：{oursLabel}", { oursLabel: texts.oursLabel })}</div>
           <div className="mt-editor" ref={hosts.left} />
         </div>
         <div className="mt-col mt-result">
-          <div className="mt-col-head">结果（可编辑，从共同祖先开始）</div>
+          <div className="mt-col-head">{t("结果（可编辑，从共同祖先开始）")}</div>
           <div className="mt-editor" ref={hosts.mid} />
         </div>
         <div className="mt-col">
-          <div className="mt-col-head">右侧（他们的）：{texts.theirsLabel}</div>
+          <div className="mt-col-head">{t("右侧（他们的）：{theirsLabel}", { theirsLabel: texts.theirsLabel })}</div>
           <div className="mt-editor" ref={hosts.right} />
         </div>
       </div>

@@ -65,6 +65,7 @@ export function errorMessage(e: unknown): string {
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
+  setLanguage: (language: "zh" | "en") => invoke<void>("set_language", { language }),
   updatesEnabled: () => invoke<boolean>("updates_enabled"),
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
   installUpdate: (taskId: number) => invoke<void>("install_update", { taskId }),

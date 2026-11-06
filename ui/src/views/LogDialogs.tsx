@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { CommitSummary } from "../bindings/CommitSummary";
 import type { ResetMode } from "../bindings/ResetMode";
+import { t } from "../i18n";
 
 export function Dialog({
   title,
@@ -40,7 +41,7 @@ export function Dialog({
         {children}
         <div className="dialog-actions">
           <button type="button" className="btn" onClick={onCancel}>
-            取消
+            {t("取消")}
           </button>
           <button type="submit" className={`btn ${danger ? "btn-danger" : "btn-primary"}`} disabled={!canSubmit}>
             {submitLabel}
@@ -82,15 +83,15 @@ export function NewRefDialog({
   const invalid = trimmed !== "" && BAD_REF.test(trimmed);
   return (
     <Dialog
-      title={kind === "branch" ? "从此提交新建分支" : "在此提交新建标签"}
+      title={kind === "branch" ? t("从此提交新建分支") : t("在此提交新建标签")}
       onCancel={onCancel}
       onSubmit={() => onSubmit(trimmed, { checkout, message })}
-      submitLabel="创建"
+      submitLabel={t("创建")}
       canSubmit={trimmed !== "" && !invalid}
     >
       <CommitLine commit={commit} />
       <label className="log-dialog-field">
-        <span>{kind === "branch" ? "分支名" : "标签名"}</span>
+        <span>{kind === "branch" ? t("分支名") : t("标签名")}</span>
         <input
           ref={input}
           className="lf-input"
@@ -100,15 +101,15 @@ export function NewRefDialog({
           spellCheck={false}
         />
       </label>
-      {invalid && <div className="log-dialog-error">名称包含 git 不允许的字符或格式</div>}
+      {invalid && <div className="log-dialog-error">{t("名称包含 git 不允许的字符或格式")}</div>}
       {kind === "branch" ? (
         <label className="log-dialog-check">
           <input type="checkbox" checked={checkout} onChange={(e) => setCheckout(e.target.checked)} />
-          创建后切换到新分支
+          {t("创建后切换到新分支")}
         </label>
       ) : (
         <label className="log-dialog-field">
-          <span>说明（可选，填写后创建附注标签）</span>
+          <span>{t("说明（可选，填写后创建附注标签）")}</span>
           <textarea className="lf-input lf-paths" rows={3} value={message} onChange={(e) => setMessage(e.target.value)} />
         </label>
       )}
@@ -117,10 +118,10 @@ export function NewRefDialog({
 }
 
 const RESET_MODES: { mode: ResetMode; label: string; detail: string }[] = [
-  { mode: "soft", label: "Soft", detail: "只移动分支；之后的改动保留在暂存区" },
-  { mode: "mixed", label: "Mixed", detail: "移动分支并重置暂存区；改动保留在工作区" },
-  { mode: "keep", label: "Keep", detail: "移动分支并更新工作区；会丢失的本地修改则拒绝执行" },
-  { mode: "hard", label: "Hard", detail: "移动分支并丢弃所有本地修改（可在撤销中心恢复）" },
+  { mode: "soft", label: "Soft", detail: t("只移动分支；之后的改动保留在暂存区") },
+  { mode: "mixed", label: "Mixed", detail: t("移动分支并重置暂存区；改动保留在工作区") },
+  { mode: "keep", label: "Keep", detail: t("移动分支并更新工作区；会丢失的本地修改则拒绝执行") },
+  { mode: "hard", label: "Hard", detail: t("移动分支并丢弃所有本地修改（可在撤销中心恢复）") },
 ];
 
 export function ResetDialog({
@@ -138,10 +139,10 @@ export function ResetDialog({
   const [mode, setMode] = useState<ResetMode>("mixed");
   return (
     <Dialog
-      title={branch ? `将 ${branch} 重置到此提交` : "将 HEAD 重置到此提交"}
+      title={branch ? t("将 {branch} 重置到此提交", { branch }) : t("将 HEAD 重置到此提交")}
       onCancel={onCancel}
       onSubmit={() => onSubmit(mode)}
-      submitLabel={mode === "hard" ? "重置并丢弃修改" : "重置"}
+      submitLabel={mode === "hard" ? t("重置并丢弃修改") : t("重置")}
       danger={mode === "hard"}
     >
       <CommitLine commit={commit} />

@@ -8,14 +8,15 @@ import type { RebaseAction } from "../bindings/RebaseAction";
 import { relativeTime } from "../lib/format";
 import { isNoop, move, preview, problem, toSteps, type PlanRow } from "../lib/rebasePlan";
 import { useRepo } from "../stores/repo";
+import { t } from "../i18n";
 
 const ACTIONS: { action: RebaseAction; label: string; key: string; hint: string }[] = [
-  { action: "pick", label: "保留", key: "p", hint: "pick：原样保留" },
-  { action: "reword", label: "改写信息", key: "r", hint: "reword：保留修改，换一条提交信息" },
-  { action: "edit", label: "暂停修改", key: "e", hint: "edit：应用后暂停，可修改后在横幅中继续" },
-  { action: "squash", label: "合并到下方", key: "s", hint: "squash：并入下方（更早）的提交，保留两条信息" },
-  { action: "fixup", label: "合并（丢弃信息）", key: "f", hint: "fixup：并入下方的提交，丢弃这条信息" },
-  { action: "drop", label: "删除", key: "d", hint: "drop：丢弃这个提交及其修改" },
+  { action: "pick", label: t("保留"), key: "p", hint: t("pick：原样保留") },
+  { action: "reword", label: t("改写信息"), key: "r", hint: t("reword：保留修改，换一条提交信息") },
+  { action: "edit", label: t("暂停修改"), key: "e", hint: t("edit：应用后暂停，可修改后在横幅中继续") },
+  { action: "squash", label: t("合并到下方"), key: "s", hint: t("squash：并入下方（更早）的提交，保留两条信息") },
+  { action: "fixup", label: t("合并（丢弃信息）"), key: "f", hint: t("fixup：并入下方的提交，丢弃这条信息") },
+  { action: "drop", label: t("删除"), key: "d", hint: t("drop：丢弃这个提交及其修改") },
 ];
 
 export function RebaseDialog() {
@@ -119,12 +120,12 @@ export function RebaseDialog() {
     if (!root || why) return;
     const steps = toSteps(rows);
     close();
-    void runTask("交互式变基", async (r) => {
+    void runTask(t("交互式变基"), async (r) => {
       const finished = await api.interactiveRebase(r, from.oid, steps, autostash && dirty);
       toast(
         finished
-          ? { kind: "success", title: "变基完成" }
-          : { kind: "info", title: "变基已暂停", detail: "按横幅提示修改或解决冲突后点「继续」" },
+          ? { kind: "success", title: t("变基完成") }
+          : { kind: "info", title: t("变基已暂停"), detail: t("按横幅提示修改或解决冲突后点「继续」") },
       );
     });
   };
@@ -135,24 +136,24 @@ export function RebaseDialog() {
         className="dialog rb-dialog"
         role="dialog"
         aria-modal
-        aria-label="交互式变基"
+        aria-label={t("交互式变基")}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === "Escape" && close()}
       >
         <h3>
-          交互式变基{branch ? ` ${branch}` : ""}
-          <span className="muted">（从 {from.oid.slice(0, 7)} {from.subject} 起，共 {rows.length} 个提交）</span>
+          {t("交互式变基{note}", { note: branch ? ` ${branch}` : "" })}
+          <span className="muted">{t("（从 {hash} {subject} 起，共 {count} 个提交）", { hash: from.oid.slice(0, 7), subject: from.subject, count: rows.length })}</span>
         </h3>
         {error ? (
           <div className="rb-error">{error}</div>
         ) : !original ? (
           <div className="empty">
-            <span className="spinner inline" /> 正在读取提交…
+            <span className="spinner inline" />{t("正在读取提交…")}
           </div>
         ) : (
           <div className="rb-body">
             <div className="rb-plan">
-              <div className="rb-hint muted">拖动或 Alt+↑/↓ 调整顺序 · 快捷键 P 保留 / R 改写 / E 暂停 / S 合并 / F 合并丢信息 / D 删除</div>
+              <div className="rb-hint muted">{t("拖动或 Alt+↑/↓ 调整顺序 · 快捷键 P 保留 / R 改写 / E 暂停 / S 合并 / F 合并丢信息 / D 删除")}</div>
               <div className="rb-list" ref={list} tabIndex={0} onKeyDown={onKey}>
                 {rows.map((r, i) => (
                   <div
@@ -160,7 +161,7 @@ export function RebaseDialog() {
                     className={`rb-row rb-${r.action} ${i === sel ? "selected" : ""} ${drag?.over === i && drag.from !== i ? (drag.from < i ? "drop-below" : "drop-above") : ""}`}
                     onMouseDown={() => setSel(i)}
                   >
-                    <span className="rb-handle" title="拖动调整顺序" onMouseDown={(e) => startDrag(e, i)}>
+                    <span className="rb-handle" title={t("拖动调整顺序")} onMouseDown={(e) => startDrag(e, i)}>
                       ⋮⋮
                     </span>
                     <select
@@ -182,7 +183,7 @@ export function RebaseDialog() {
                           className="lf-input rb-message"
                           rows={Math.min(6, Math.max(2, (r.message ?? "").split("\n").length))}
                           value={r.message ?? ""}
-                          placeholder="新的提交信息"
+                          placeholder={t("新的提交信息")}
                           onChange={(e) =>
                             setRows((rs) => rs.map((x, k) => (k === i ? { ...x, message: e.target.value } : x)))
                           }
@@ -199,7 +200,7 @@ export function RebaseDialog() {
               </div>
             </div>
             <div className="rb-preview">
-              <div className="rb-hint muted">变基后的提交（新 → 旧）</div>
+              <div className="rb-hint muted">{t("变基后的提交（新 → 旧）")}</div>
               {result.map((c) => (
                 <div key={c.row.commit.oid} className="rb-result">
                   <span className="rb-dot" />
@@ -207,8 +208,8 @@ export function RebaseDialog() {
                     <div className="rb-subject">{c.subject}</div>
                     {(c.melded.length > 0 || c.stops) && (
                       <div className="muted rb-sub">
-                        {c.melded.length > 0 && `并入 ${c.melded.length} 个提交：${c.melded.map((m) => m.commit.oid.slice(0, 7)).join("、")}`}
-                        {c.stops && (c.melded.length ? " · " : "") + "应用后暂停"}
+                        {c.melded.length > 0 && t("并入 {count} 个提交：{subjects}", { count: c.melded.length, subjects: c.melded.map((m) => m.commit.oid.slice(0, 7)).join(t("、")) })}
+                        {c.stops && (c.melded.length ? " · " : "") + t("应用后暂停")}
                       </div>
                     )}
                   </div>
@@ -216,26 +217,26 @@ export function RebaseDialog() {
               ))}
               <div className="rb-result rb-base">
                 <span className="rb-dot" />
-                <span className="muted">（之前的历史）</span>
+                <span className="muted">{t("（之前的历史）")}</span>
               </div>
             </div>
           </div>
         )}
         <div className="rb-footer">
           {why && original && <span className="rb-error">{why}</span>}
-          {!why && noop && original && <span className="muted">计划与当前一致，不会有任何变化</span>}
+          {!why && noop && original && <span className="muted">{t("计划与当前一致，不会有任何变化")}</span>}
           <span className="spacer" />
           {dirty && (
-            <label className="log-dialog-check" title="git rebase --autostash：先 stash 本地修改，结束后自动恢复">
+            <label className="log-dialog-check" title={t("git rebase --autostash：先 stash 本地修改，结束后自动恢复")}>
               <input type="checkbox" checked={autostash} onChange={(e) => setAutostash(e.target.checked)} />
-              自动 stash 本地修改
+              {t("自动 stash 本地修改")}
             </label>
           )}
           <button className="btn" onClick={close}>
-            取消
+            {t("取消")}
           </button>
           <button className="btn btn-primary" disabled={!original || !!why || noop} onClick={start}>
-            开始变基
+            {t("开始变基")}
           </button>
         </div>
       </div>
