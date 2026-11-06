@@ -1,5 +1,5 @@
 // Settings: appearance, git, shortcuts, updates, about.
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type AppInfo } from "../api";
 import {
@@ -13,6 +13,7 @@ import {
   shortcutCatalog,
   useKeymapVersion,
 } from "../actions/registry";
+import { changelogBlocks, changelogSection, codeSpans } from "../lib/changelog";
 import { load, save } from "../lib/storage";
 import { currentTheme, setTheme, type Theme } from "../lib/theme";
 import { useRepo, type SettingsSection } from "../stores/repo";
@@ -62,7 +63,7 @@ export function SettingsView({ info }: { info: AppInfo | null }) {
             {section === "appearance" && <Appearance />}
             {section === "git" && <GitSettings info={info} />}
             {section === "keymap" && <Keymap />}
-            {section === "updates" && <Updates />}
+            {section === "updates" && <Updates info={info} />}
             {section === "about" && <About info={info} />}
           </div>
         </div>
@@ -309,7 +310,29 @@ function Keymap() {
   );
 }
 
-function Updates() {
+/** What changed in the running version, from the bundled CHANGELOG.md. */
+function ReleaseNotes({ version }: { version: string }) {
+  const section = changelogSection(version);
+  if (!section) return <p className="muted">{t("没有找到这个版本的更新说明。")}</p>;
+  const inline = (text: string) => codeSpans(text).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+  const blocks = changelogBlocks(section);
+  const out: ReactNode[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.kind === "heading") out.push(<h4 key={i}>{b.text}</h4>);
+    else if (b.kind === "text") out.push(<p key={i}>{inline(b.text)}</p>);
+    else {
+      // Consecutive items make one list.
+      const items: ReactNode[] = [];
+      for (; i < blocks.length && blocks[i].kind === "item"; i++) items.push(<li key={i}>{inline(blocks[i].text)}</li>);
+      i--;
+      out.push(<ul key={`l${i}`}>{items}</ul>);
+    }
+  }
+  return <div className="st-notes">{out}</div>;
+}
+
+function Updates({ info }: { info: AppInfo | null }) {
   const [auto, setAuto] = useState(() => load("autoCheckUpdates", true));
   const [enabled, setEnabled] = useState<boolean | null>(null);
   useEffect(() => {
@@ -317,6 +340,8 @@ function Updates() {
   }, []);
   return (
     <section>
+      <h3>{t("当前版本 {version}", { version: info?.version ?? "" })}</h3>
+      {info?.version && <ReleaseNotes version={info.version} />}
       <h3>{t("自动更新")}</h3>
       {enabled === false ? (
         <p className="muted">{t("这个版本没有启用自动更新（开发版本或自行构建的版本）。")}</p>
@@ -356,9 +381,6 @@ function About({ info }: { info: AppInfo | null }) {
     <section>
       <h3>GlideGit {info?.version}</h3>
       <p className="muted">{t("像 IntelliJ IDEA 的 Git 界面一样顺手的跨平台 Git 客户端。")}</p>
-      <p>
-        git {info?.gitVersion || "—"} <span className="muted mono">{info?.gitPath}</span>
-      </p>
       <p className="muted">{t("平台：{platform}", { platform: info?.platform })}</p>
       <p className="muted">
         {t("源代码与问题反馈：")}<span className="mono">github.com/ming2502/GlideGit</span>

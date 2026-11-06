@@ -44,16 +44,26 @@ export function Welcome({ info }: { info: AppInfo | null }) {
           <p className="muted">{gitVersion ? `git ${gitVersion}` : t("正在检测 git…")}</p>
         )}
         <button className="btn btn-primary btn-lg" onClick={() => void pickRepository()}>
-          {t("打开仓库…")}<span className="kbd">{shortcutOf("repo.open")}</span>
+          {t("打开仓库…")} <span className="kbd">{shortcutOf("repo.open")}</span>
         </button>
         {recent.length > 0 && (
           <div className="recent">
             <div className="recent-title muted">{t("最近打开")}</div>
             {recent.map((r) => (
-              <button key={r} className="recent-item" onClick={() => void openRepo(r)}>
-                <b>{repoName(r)}</b>
-                <span className="muted">{r}</span>
-              </button>
+              <div key={r} className="recent-row">
+                <button className="recent-item" onClick={() => void openRepo(r)}>
+                  <b>{repoName(r)}</b>
+                  <span className="muted">{r}</span>
+                </button>
+                <button
+                  className="recent-remove"
+                  onClick={() => useRepo.getState().removeRecent(r)}
+                  title={t("从列表中移除（不会删除文件）")}
+                  aria-label={t("从最近打开中移除 {name}", { name: repoName(r) })}
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}

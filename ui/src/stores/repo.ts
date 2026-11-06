@@ -93,6 +93,8 @@ interface RepoState {
   pullMode: PullMode;
 
   openRepo: (path: string) => Promise<void>;
+  /** Take a repository off the recent list (it stays on disk). */
+  removeRecent: (path: string) => void;
   /** Close the active tab. */
   closeRepo: () => Promise<void>;
   closeTab: (root: string) => Promise<void>;
@@ -184,6 +186,12 @@ export const useRepo = create<RepoState>((set, get) => ({
   history: null,
   compare: null,
   pullMode: load<PullMode>("pullMode", "merge"),
+
+  removeRecent(path) {
+    const recent = get().recent.filter((r) => r !== path);
+    save("recentRepos", recent);
+    set({ recent });
+  },
 
   async openRepo(path) {
     try {

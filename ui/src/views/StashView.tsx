@@ -116,7 +116,7 @@ function StashPanel({ tabs }: { tabs: ReactNode }) {
         </div>
         {list === null ? (
           <div className="empty">
-            <span className="spinner inline" />{t("正在读取…")}
+            <span className="spinner inline" /> {t("正在读取…")}
           </div>
         ) : list.length === 0 ? (
           <div className="empty">

@@ -380,7 +380,7 @@ export function LogView() {
         <div className="empty">{error}</div>
       ) : filtering ? (
         <div className="empty">
-          <span className="spinner inline" />{t("正在过滤…")}
+          <span className="spinner inline" /> {t("正在过滤…")}
         </div>
       ) : total === 0 ? (
         <div className="empty">
@@ -465,7 +465,7 @@ export function LogView() {
         </span>
         {indexing && (
           <span className="log-indexing">
-            <span className="spinner" />{t("正在建立提交索引…")}
+            <span className="spinner" /> {t("正在建立提交索引…")}
           </span>
         )}
         {status?.error && <span className="log-error" title={status.error}>{t("索引更新失败：{error}", { error: status.error })}</span>}

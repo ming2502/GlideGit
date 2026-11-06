@@ -200,10 +200,10 @@ function DatePanel({
       ))}
       <div className="lf-range">
         <label>
-          {t("从")}<input type="date" value={toDateInput(since)} onChange={(e) => onChange(fromDateInput(e.target.value, false), until)} />
+          {t("从")} <input type="date" value={toDateInput(since)} onChange={(e) => onChange(fromDateInput(e.target.value, false), until)} />
         </label>
         <label>
-          {t("到")}<input type="date" value={toDateInput(until)} onChange={(e) => onChange(since, fromDateInput(e.target.value, true))} />
+          {t("到")} <input type="date" value={toDateInput(until)} onChange={(e) => onChange(since, fromDateInput(e.target.value, true))} />
         </label>
       </div>
     </div>

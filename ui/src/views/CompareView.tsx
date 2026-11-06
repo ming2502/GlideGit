@@ -211,7 +211,7 @@ export function CompareView() {
           <div className="diff-empty">{error}</div>
         ) : !data ? (
           <div className="diff-empty">
-            <span className="spinner" />{t("正在比较…")}
+            <span className="spinner" /> {t("正在比较…")}
           </div>
         ) : (
           <>

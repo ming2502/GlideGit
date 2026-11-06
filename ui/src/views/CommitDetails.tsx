@@ -121,7 +121,7 @@ export function CommitDetailsPane({
   if (!current) {
     return (
       <div className="cd-empty muted">
-        <span className="spinner inline" />{t("正在读取提交…")}
+        <span className="spinner inline" /> {t("正在读取提交…")}
       </div>
     );
   }

@@ -2173,6 +2173,37 @@ body.resizing-v * {
 .recent-item .muted {
   font-size: 11.5px;
 }
+.recent-row {
+  position: relative;
+}
+.recent-row .recent-item {
+  padding-right: 32px;
+}
+.recent-remove {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  /* Shown on hover, and when reached with the keyboard. */
+  opacity: 0;
+}
+.recent-row:hover .recent-remove,
+.recent-remove:focus-visible {
+  opacity: 1;
+}
+.recent-remove:hover {
+  background: var(--selection);
+  color: var(--text);
+}
 
 /* ------------------------------------------------------- tasks/progress */
 .sb-task-title {
@@ -2650,9 +2681,11 @@ body.resizing-v * {
 }
 
 /* ------------------------------------------------------------- settings */
+/* A dialog-sized window, centered (the overlay otherwise stretches it). */
 .mt-window.settings {
-  max-width: 920px;
-  max-height: 680px;
+  flex: 0 1 920px;
+  height: min(680px, 100%);
+  margin: auto;
 }
 .st-body {
   flex: 1;
@@ -2779,20 +2812,48 @@ body.resizing-v * {
   cursor: pointer;
   font-size: 12px;
 }
-.sb-git {
+.sb-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 0;
   background: transparent;
   font: inherit;
-  padding: 0;
+  padding: 0 2px;
+  color: var(--muted);
   cursor: pointer;
 }
-.sb-git.muted {
-  color: var(--muted);
+.sb-settings:hover {
+  color: var(--text);
 }
-.sb-git.warn {
+.sb-settings.warn {
   color: var(--danger);
 }
 .welcome-git-error {
   color: var(--danger);
   text-align: center;
+}
+
+.st-notes {
+  max-height: 300px;
+  overflow: auto;
+  padding: 4px 14px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  line-height: 1.6;
+}
+.st-notes h4 {
+  margin: 10px 0 2px;
+  font-size: 12.5px;
+}
+.st-notes ul {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+.st-notes li {
+  margin: 2px 0;
+}
+.st-notes code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.92em;
 }

@@ -235,7 +235,7 @@ export function AnnotateView() {
           <div className="diff-empty">{error}</div>
         ) : !blame ? (
           <div className="diff-empty">
-            <span className="spinner" />{t("正在计算每一行的来源…")}
+            <span className="spinner" /> {t("正在计算每一行的来源…")}
           </div>
         ) : (
           <div className="mt-editor annotate-editor" ref={host} />

@@ -148,7 +148,7 @@ export function RebaseDialog() {
           <div className="rb-error">{error}</div>
         ) : !original ? (
           <div className="empty">
-            <span className="spinner inline" />{t("正在读取提交…")}
+            <span className="spinner inline" /> {t("正在读取提交…")}
           </div>
         ) : (
           <div className="rb-body">

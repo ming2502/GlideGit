@@ -68,7 +68,7 @@ export function PushDialog() {
           <p className="error-text">{error}</p>
         ) : !preview ? (
           <div className="push-loading">
-            <span className="spinner" />{t("正在计算待推送的提交…")}
+            <span className="spinner" /> {t("正在计算待推送的提交…")}
           </div>
         ) : !preview.branch ? (
           <p>{t("当前处于 detached HEAD，无法推送。请先切换到分支。")}</p>

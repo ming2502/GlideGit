@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AppInfo, PullMode } from "../api";
 import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
-import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, UndoIcon } from "../components/Icons";
+import { BranchIcon, ChevronDown, FetchIcon, FolderIcon, GearIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, UndoIcon } from "../components/Icons";
 import { repoName } from "../lib/format";
 import { useRepo, type Task } from "../stores/repo";
 import { useOperationLog } from "./UndoCenter";
@@ -209,18 +209,6 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
         </span>
       )}
       <span className="spacer" />
-      <button
-        className={`sb-git ${info?.gitError ? "warn" : "muted"}`}
-        onClick={() => useRepo.getState().setSettings("git")}
-        title={
-          info?.gitError ??
-          (info ? t("{gitPath}{note}\n点击打开 Git 设置", { gitPath: info.gitPath, note: info.gitBundled ? t("\n没有找到已安装的 git，正在使用 GlideGit 自带的 MinGit") : "" }) : undefined)
-        }
-      >
-        {info?.gitError && !info.gitVersion ? t("⚠ 没有可用的 git") : `git ${info?.gitVersion ?? ""}`}
-        {info?.gitError && info.gitVersion ? " ⚠" : ""}
-        {info?.gitBundled ? t("（内置）") : ""}
-      </button>
       {head && (
         <button className="sb-branch" onClick={() => runAction("branches.popup")}>
           <BranchIcon />
@@ -229,6 +217,15 @@ export function StatusBar({ info }: { info: AppInfo | null }) {
           {head.behind > 0 && <span className="sb-ab">↓{head.behind}</span>}
         </button>
       )}
+      {/* A git problem shows here, and opens the Git settings directly. */}
+      <button
+        className={`sb-settings ${info?.gitError ? "warn" : ""}`}
+        onClick={() => useRepo.getState().setSettings(info?.gitError ? "git" : "appearance")}
+        title={info?.gitError ?? t("设置 {shortcut}", { shortcut: shortcutOf("app.settings") })}
+      >
+        <GearIcon />
+        {info?.gitError ? t("⚠ 设置") : t("设置")}
+      </button>
     </div>
   );
 }
