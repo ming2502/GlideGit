@@ -111,3 +111,89 @@ jobs:
         with:
           name: perf-${{ matrix.os }}
           path: perf-${{ matrix.os }}.*
+
+  # Screenshot regression tests (e2e/, docs/TESTING.md): the UI on the mock
+  # backend in each platform's engine, against baselines made on these same
+  # runners. With no baselines yet for a platform, or "[update-screenshots]"
+  # in the pushed commit's message, the job writes them and commits them to
+  # the branch instead of comparing.
+  screenshots:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            browser: webkit
+            dir: darwin-webkit
+          - os: windows-latest
+            browser: chromium
+            dir: win32-chromium
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install ${{ matrix.browser }}
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Compare or update?
+        shell: bash
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ ! -d "e2e/__screenshots__/${{ matrix.dir }}" ]; then
+            echo "No baselines for ${{ matrix.dir }} yet: writing them"
+            echo "MODE=update" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = push ] && printf '%s' "$MESSAGE" | grep -q '\[update-screenshots\]'; then
+            echo "Asked to update the baselines"
+            echo "MODE=update" >> "$GITHUB_ENV"
+          else
+            echo "MODE=compare" >> "$GITHUB_ENV"
+          fi
+
+      - name: Screenshot tests
+        if: env.MODE == 'compare'
+        run: pnpm e2e
+
+      - name: Write baselines
+        if: env.MODE == 'update'
+        run: pnpm exec playwright test --update-snapshots=all
+
+      - uses: actions/upload-artifact@v4
+        if: failure() || env.MODE == 'update'
+        with:
+          name: screenshots-${{ matrix.dir }}
+          path: |
+            playwright-report/
+            test-results/
+            e2e/__screenshots__/${{ matrix.dir }}/
+
+      # Only on pushes to main: a pull request's baselines come from main.
+      - name: Commit baselines
+        if: env.MODE == 'update' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "e2e/__screenshots__/${{ matrix.dir }}"
+          if git diff --cached --quiet; then
+            echo "Baselines unchanged"
+            exit 0
+          fi
+          git commit -m "Update ${{ matrix.dir }} screenshot baselines"
+          # The other platform's job may push first.
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase --quiet origin main && git push origin HEAD:main && exit 0
+            sleep $((attempt * 5))
+          done
+          exit 1

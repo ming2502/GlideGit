@@ -5,6 +5,7 @@
 - 设计文档：[docs/DESIGN.md](docs/DESIGN.md)
 - 工作计划：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 发布与签名：[docs/RELEASING.md](docs/RELEASING.md)
+- 测试：[docs/TESTING.md](docs/TESTING.md)
 
 ## 技术栈
 
@@ -29,6 +30,7 @@ pnpm tauri dev        # 启动桌面应用
 pnpm dev              # 仅前端，在浏览器中用 mock 数据预览 UI
 cargo test --workspace
 pnpm test             # 前端单元测试（vitest）
+pnpm e2e              # 截图回归测试（Playwright，见 docs/TESTING.md）
 pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
 cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log 索引基准
 cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   # 刷新耗时基准

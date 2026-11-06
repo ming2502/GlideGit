@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 *.log
 crates/app/gen/schemas/
+
+# Playwright
+/test-results/
+/playwright-report/
