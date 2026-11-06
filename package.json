@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "e2e": "playwright test",
-    "e2e:update": "playwright test --update-snapshots"
+    "e2e:update": "playwright test --update-snapshots",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@codemirror/language": "^6.13.1",

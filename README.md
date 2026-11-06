@@ -75,6 +75,7 @@ cargo test --workspace
 pnpm test             # 前端单元测试（vitest）
 pnpm e2e              # 截图回归测试（Playwright，见 docs/TESTING.md）
 pnpm bindings         # Rust 模型变更后重新生成 ui/src/bindings
+pnpm release 1.1.0    # 发布新版本（见 docs/RELEASING.md）
 cargo run --release -p glide-log-index --example bench -- <仓库路径>   # Log 索引基准
 cargo run --release -p glide-git-backend --example refresh -- <仓库路径>   # 刷新耗时基准
 cargo run --release -p glide-bench -- [--commits N] [--only log,open,branches,diff,save]   # 性能目标逐项检查（DESIGN §1.2）
