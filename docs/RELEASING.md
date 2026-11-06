@@ -147,17 +147,17 @@ GlideGit 启动约 5 秒后（之后每 6 小时）检查一次 GitHub 上最新
    ```
 
    会生成私钥 `glidegit-updater.key` 和公钥 `glidegit-updater.key.pub`。
-2. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中：
-   - **Variables** 页添加 `UPDATER_PUBKEY`：公钥文件的内容（公钥不是秘密，放在变量中便于查看）。
-   - **Secrets** 页添加 `TAURI_SIGNING_PRIVATE_KEY`：私钥文件的内容；`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：生成时设置的密码。
-3. **妥善备份私钥和密码**（例如放进密码管理器）。私钥一旦丢失，已经安装的版本就再也无法收到更新，只能让用户手动下载新版本。私钥不要提交到仓库，也不要发到聊天或 issue 里。
+2. 公钥放进仓库：复制到 `crates/app/updater.pub` 并提交（公钥不是秘密；当前的公钥 ID 为 `C73653DF0AD389FE`）。
+3. 在 GitHub 仓库 **Settings → Secrets and variables → Actions → Secrets** 中添加 `TAURI_SIGNING_PRIVATE_KEY`：私钥文件的内容；`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：生成时设置的密码。
+4. **妥善备份私钥和密码**（例如放进密码管理器）。私钥一旦丢失，已经安装的版本就再也无法收到更新，只能让用户手动下载新版本。私钥不要提交到仓库，也不要发到聊天或 issue 里。
 
-公钥和私钥要么都配置，要么都不配置：只配置一半时工作流会给出警告，并按未启用更新来构建。
+公钥和私钥要么都配置，要么都不配置：只配置一半时工作流会给出警告，并按未启用更新来构建（这样构建出的版本不会被发布）。
 
 ### 工作流做了什么
 
 1. 构建时由 `scripts/release-config.mjs` 把公钥写入配置（`plugins.updater.pubkey`，应用从这里读取），并用私钥为更新包签名：macOS 是 `GlideGit.app.tar.gz`（通用二进制，两种芯片共用），Windows 直接使用 NSIS 安装程序。
-2. 两个平台都完成后，`updater-manifest` 任务用 `scripts/updater-manifest.mjs` 生成 `latest.json`（版本号、更新说明、各平台下载地址和签名），连同 macOS 的更新包一起上传到草稿 release。
+2. 用 `scripts/verify-update-sig.mjs` 按更新程序的算法，用仓库中的公钥校验刚签好的更新包。GitHub 上的私钥与公钥不配对时在这里失败，不会发布一个之后再也无法更新的版本。
+3. 两个平台都完成后，`updater-manifest` 任务用 `scripts/updater-manifest.mjs` 生成 `latest.json`（版本号、更新说明、各平台下载地址和签名），连同 macOS 的更新包一起上传到草稿 release。
 
 没有配置密钥时构建出的应用不带更新功能（命令面板中的「Check for Updates…」为灰色），开发版本和 fork 也是如此。
 

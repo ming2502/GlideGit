@@ -15,9 +15,10 @@ name: Release
 # shipping MinGit as a fallback git. Signed when a code signing certificate
 # is configured; otherwise SmartScreen warns on first run.
 #
-# Updates: with the updater key configured (variable UPDATER_PUBKEY, secrets
-# TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]), the builds also make signed update
-# packages, and a last job publishes `latest.json` for the in-app updater.
+# Updates: the public updater key is crates/app/updater.pub; with the private
+# key in the secrets (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]) the builds also
+# make signed update packages, checked against the public key, and a job
+# writes `latest.json` for the in-app updater.
 
 on:
   push:
@@ -29,11 +30,13 @@ on:
       - crates/app/entitlements.plist
       - crates/app/tauri.windows.conf.json
       - crates/app/build.rs
+      - crates/app/updater.pub
       - scripts/check-version.mjs
       - scripts/fetch-mingit.mjs
       - scripts/release-config.mjs
       - scripts/updater-manifest.mjs
       - scripts/changelog-section.mjs
+      - scripts/verify-update-sig.mjs
   workflow_dispatch:
 
 permissions:
@@ -42,6 +45,8 @@ permissions:
 jobs:
   macos:
     runs-on: macos-latest
+    outputs:
+      updater: ${{ steps.updater.outputs.enabled }}
     steps:
       - uses: actions/checkout@v5
 
@@ -106,13 +111,15 @@ jobs:
       # Both halves of the updater key, or neither: an app that checks for
       # updates nobody signs, or signed updates no app can verify, help no one.
       - name: Configure updater
+        id: updater
         shell: bash
         env:
-          PUBKEY: ${{ vars.UPDATER_PUBKEY }}
           PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          PUBKEY=$(cat crates/app/updater.pub 2>/dev/null || true)
           if [ -n "$PUBKEY" ] && [ -n "$PRIVATE_KEY" ]; then
+            echo "enabled=1" >> "$GITHUB_OUTPUT"
             {
               echo "GLIDEGIT_UPDATER_PUBKEY=$PUBKEY"
               echo "TAURI_SIGNING_PRIVATE_KEY=$PRIVATE_KEY"
@@ -159,11 +166,12 @@ jobs:
           name: GlideGit-macos-universal
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
-      - name: Collect the update package
+      - name: Collect and check the update package
         if: env.UPDATER == '1'
         run: |
           mkdir -p "$RUNNER_TEMP/updater"
           src=target/universal-apple-darwin/release/bundle/macos/GlideGit.app.tar.gz
+          node scripts/verify-update-sig.mjs "$src" "$src.sig" crates/app/updater.pub
           cp "$src" "$RUNNER_TEMP/updater/GlideGit_${VERSION}_universal.app.tar.gz"
           cp "$src.sig" "$RUNNER_TEMP/updater/GlideGit_${VERSION}_universal.app.tar.gz.sig"
           ls -la "$RUNNER_TEMP/updater"
@@ -188,6 +196,8 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    outputs:
+      updater: ${{ steps.updater.outputs.enabled }}
     steps:
       - uses: actions/checkout@v5
 
@@ -239,13 +249,15 @@ jobs:
       # Both halves of the updater key, or neither: an app that checks for
       # updates nobody signs, or signed updates no app can verify, help no one.
       - name: Configure updater
+        id: updater
         shell: bash
         env:
-          PUBKEY: ${{ vars.UPDATER_PUBKEY }}
           PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          PUBKEY=$(cat crates/app/updater.pub 2>/dev/null || true)
           if [ -n "$PUBKEY" ] && [ -n "$PRIVATE_KEY" ]; then
+            echo "enabled=1" >> "$GITHUB_OUTPUT"
             {
               echo "GLIDEGIT_UPDATER_PUBKEY=$PUBKEY"
               echo "TAURI_SIGNING_PRIVATE_KEY=$PRIVATE_KEY"
@@ -298,11 +310,13 @@ jobs:
 
       # The NSIS installer doubles as the update package; the updater runs it
       # in passive mode.
-      - name: Collect the update package
+      - name: Collect and check the update package
         if: env.UPDATER == '1'
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/updater"
+          exe=$(ls target/release/bundle/nsis/*-setup.exe)
+          node scripts/verify-update-sig.mjs "$exe" "$exe.sig" crates/app/updater.pub
           cp target/release/bundle/nsis/*-setup.exe target/release/bundle/nsis/*-setup.exe.sig "$RUNNER_TEMP/updater/"
           ls -la "$RUNNER_TEMP/updater"
 
@@ -329,7 +343,7 @@ jobs:
   # published release). Notes: the version's CHANGELOG.md section.
   updater-manifest:
     needs: [macos, windows]
-    if: startsWith(github.ref, 'refs/tags/v') && vars.UPDATER_PUBKEY != ''
+    if: startsWith(github.ref, 'refs/tags/v') && needs.macos.outputs.updater == '1' && needs.windows.outputs.updater == '1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -365,13 +379,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          UPDATER: ${{ vars.UPDATER_PUBKEY != '' }}
+          UPDATER: ${{ needs.macos.outputs.updater == '1' && needs.windows.outputs.updater == '1' }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           # A release without the updater strands its users: later versions
           # could never reach them. Leave the draft for a look instead.
           if [ "$UPDATER" != true ]; then
-            echo "::error::the updater key is not configured (variable UPDATER_PUBKEY); not publishing"
+            echo "::error::the builds had no updater (private key secret missing?); not publishing"
             exit 1
           fi
           assets=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
