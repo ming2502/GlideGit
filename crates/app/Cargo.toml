@@ -6,8 +6,8 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-glide-core = { version = "1.0.0", path = "../core" }
-glide-git-backend = { version = "1.0.0", path = "../git-backend" }
+glide-core = { version = "1.1.0", path = "../core" }
+glide-git-backend = { version = "1.1.0", path = "../git-backend" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri = { version = "2", features = [] }

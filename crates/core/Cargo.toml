@@ -7,8 +7,8 @@ license.workspace = true
 
 [dependencies]
 getrandom = "0.4.3"
-glide-git-backend = { version = "1.0.0", path = "../git-backend" }
-glide-log-index = { version = "1.0.0", path = "../log-index" }
+glide-git-backend = { version = "1.1.0", path = "../git-backend" }
+glide-log-index = { version = "1.1.0", path = "../log-index" }
 notify = "8.2.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

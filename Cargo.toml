@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/git-backend", "crates/log-index", "crates/core", "crates/app", "crates/bench"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 repository = "https://github.com/ming2502/GlideGit"
 license = "Apache-2.0"
