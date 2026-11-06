@@ -239,16 +239,21 @@ fn bench_log(b: &mut Bench, repo_path: &Path, scratch: &Path) {
     );
     b.info("Log 首次建索引（无 commit-graph）全量", full);
 
+    // First rows of a fresh index, five times (each stopped once they are
+    // in): one run on a shared CI machine can be several times slower.
+    let firsts: Vec<Duration> = (0..5)
+        .map(|i| first_rows(&repo, &scratch.join(format!("cache-log-first-{i}"))))
+        .collect();
     let dir = scratch.join("cache-log");
     let _ = std::fs::remove_dir_all(&dir);
-    let (first, full, total) = build_index(&repo, &dir);
+    let (_, full, total) = build_index(&repo, &dir);
     b.check(
         "log_first_page",
         "Log 首屏（首次打开）",
         500.0,
-        first,
+        median(firsts),
         format!(
-            "{total} 个提交，有 commit-graph；全量索引 {:.1} s",
+            "{total} 个提交，有 commit-graph；5 次中位数；全量索引 {:.1} s",
             full.as_secs_f64()
         ),
     );
@@ -295,6 +300,26 @@ fn bench_log(b: &mut Bench, repo_path: &Path, scratch: &Path) {
 }
 
 /// Build the index from scratch: time to the first rows and to the end.
+/// Time to the first rows of a fresh index; the build is cancelled there.
+fn first_rows(repo: &Repo, dir: &Path) -> Duration {
+    let _ = std::fs::remove_dir_all(dir);
+    let index = LogIndex::open(dir, repo.root()).unwrap();
+    let cancel = CancelToken::new();
+    let started = Instant::now();
+    let first = Mutex::new(None);
+    let _ = index.update(repo, &cancel, &|s| {
+        let mut f = first.lock().unwrap();
+        if f.is_none() && s.total > 0 {
+            *f = Some(started.elapsed());
+            cancel.cancel();
+        }
+    });
+    let took = first.into_inner().unwrap().expect("first rows arrive");
+    drop(index);
+    let _ = std::fs::remove_dir_all(dir);
+    took
+}
+
 fn build_index(repo: &Repo, dir: &Path) -> (Duration, Duration, u32) {
     let index = LogIndex::open(dir, repo.root()).unwrap();
     let started = Instant::now();
