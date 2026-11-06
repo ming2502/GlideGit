@@ -2665,14 +2665,10 @@ body.resizing-v * {
   font-size: 12px;
 }
 .un-notes {
-  margin: 0;
-  max-height: 180px;
+  max-height: 200px;
   overflow: auto;
-  white-space: pre-wrap;
-  font-family: inherit;
   font-size: 12px;
-  line-height: 1.55;
-  padding: 8px 10px;
+  padding: 2px 10px 6px;
   border-radius: 6px;
   background: var(--bg);
 }
@@ -2839,26 +2835,55 @@ body.resizing-v * {
   text-align: center;
 }
 
+.notes {
+  line-height: 1.6;
+}
+.notes h4 {
+  margin: 10px 0 2px;
+  font-size: 1.04em;
+}
+.notes p {
+  margin: 6px 0;
+}
+.notes ul {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+.notes li {
+  margin: 2px 0;
+}
+.notes code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
 .st-notes {
   max-height: 300px;
   overflow: auto;
   padding: 4px 14px 8px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  line-height: 1.6;
 }
-.st-notes h4 {
-  margin: 10px 0 2px;
-  font-size: 12.5px;
+
+/* ------------------------------------------------------------- tooltips */
+
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: tooltip-in 80ms ease-out;
 }
-.st-notes ul {
-  margin: 2px 0;
-  padding-left: 18px;
-}
-.st-notes li {
-  margin: 2px 0;
-}
-.st-notes code {
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.92em;
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
 }

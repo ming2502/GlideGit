@@ -1,6 +1,6 @@
 // Toolbar (top) and status bar (bottom).
 import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { pickPath } from "../lib/dialogs";
 import type { AppInfo, PullMode } from "../api";
 import { shortcutOf, runAction } from "../actions/registry";
 import { ContextMenu } from "../components/ContextMenu";
@@ -11,8 +11,8 @@ import { useOperationLog } from "./UndoCenter";
 import { t } from "../i18n";
 
 export async function pickRepository(): Promise<void> {
-  const dir = await open({ directory: true, multiple: false, title: t("打开 Git 仓库") });
-  if (typeof dir === "string") await useRepo.getState().openRepo(dir);
+  const dir = await pickPath({ directory: true, title: t("打开 Git 仓库") });
+  if (dir) await useRepo.getState().openRepo(dir);
 }
 
 const PULL_LABEL: Record<PullMode, string> = {

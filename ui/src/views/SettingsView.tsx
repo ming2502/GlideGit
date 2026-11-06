@@ -1,6 +1,6 @@
 // Settings: appearance, git, shortcuts, updates, about.
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { pickPath } from "../lib/dialogs";
 import { api, errorMessage, type AppInfo } from "../api";
 import {
   chordFromEvent,
@@ -13,7 +13,8 @@ import {
   shortcutCatalog,
   useKeymapVersion,
 } from "../actions/registry";
-import { changelogBlocks, changelogSection, codeSpans } from "../lib/changelog";
+import { changelogSection } from "../lib/changelog";
+import { Notes } from "../components/Notes";
 import { load, save } from "../lib/storage";
 import { currentTheme, setTheme, type Theme } from "../lib/theme";
 import { useRepo, type SettingsSection } from "../stores/repo";
@@ -147,8 +148,8 @@ function GitSettings({ info }: { info: AppInfo | null }) {
     }
   };
   const browse = async () => {
-    const picked = await open({ multiple: false, directory: false, title: t("选择 git 可执行文件") });
-    if (typeof picked === "string") {
+    const picked = await pickPath({ directory: false, title: t("选择 git 可执行文件") });
+    if (picked) {
       setPath(picked);
       void verify(picked);
     }
@@ -314,22 +315,7 @@ function Keymap() {
 function ReleaseNotes({ version }: { version: string }) {
   const section = changelogSection(version);
   if (!section) return <p className="muted">{t("没有找到这个版本的更新说明。")}</p>;
-  const inline = (text: string) => codeSpans(text).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
-  const blocks = changelogBlocks(section);
-  const out: ReactNode[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (b.kind === "heading") out.push(<h4 key={i}>{b.text}</h4>);
-    else if (b.kind === "text") out.push(<p key={i}>{inline(b.text)}</p>);
-    else {
-      // Consecutive items make one list.
-      const items: ReactNode[] = [];
-      for (; i < blocks.length && blocks[i].kind === "item"; i++) items.push(<li key={i}>{inline(blocks[i].text)}</li>);
-      i--;
-      out.push(<ul key={`l${i}`}>{items}</ul>);
-    }
-  }
-  return <div className="st-notes">{out}</div>;
+  return <Notes markdown={section} className="notes st-notes" />;
 }
 
 function Updates({ info }: { info: AppInfo | null }) {

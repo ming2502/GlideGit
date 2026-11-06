@@ -32,3 +32,22 @@ export function changelogBlocks(section: string): Block[] {
 
 /** Split `code` spans out of a line: odd indexes are code. */
 export const codeSpans = (text: string): string[] => text.split("`");
+
+export type Span = { kind: "text" | "code" | "strong"; text: string };
+
+/** Inline Markdown in a line: `code`, **bold**, and [links](url) reduced to their text. */
+export function inlineSpans(text: string): Span[] {
+  const out: Span[] = [];
+  const push = (kind: Span["kind"], t: string) => {
+    if (!t) return;
+    const last = out[out.length - 1];
+    if (last?.kind === kind && kind !== "code") last.text += t;
+    else out.push({ kind, text: t });
+  };
+  codeSpans(text).forEach((part, i) => {
+    if (i % 2) return push("code", part);
+    const plain = part.replace(/\[([^\]]+)\]\([^)\s]*\)/g, "$1");
+    plain.split(/\*\*(.+?)\*\*/).forEach((p, j) => push(j % 2 ? "strong" : "text", p));
+  });
+  return out;
+}

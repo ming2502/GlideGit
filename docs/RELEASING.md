@@ -153,7 +153,9 @@ Windows 任务在打包后会静默安装 NSIS 安装包（`/S`），确认 `gli
 
 ## 自动更新
 
-GlideGit 启动约 5 秒后（之后每 6 小时）检查一次 GitHub 上最新已发布 release 中的 `latest.json`。有新版本时，右下角提示版本号和更新说明，可以「安装并重启」「稍后」或「跳过此版本」；命令面板中的「Check for Updates…」可以随时手动检查。下载进度显示在状态栏。macOS 上替换应用后重启；Windows 上以 passive 模式运行新版 NSIS 安装程序（显示进度、无需操作）。
+GlideGit 启动约 5 秒后（之后每 6 小时）检查一次 GitHub 上最新已发布 release 中的 `latest.json`。有新版本时，右下角提示版本号和更新说明，可以「安装并重启」「稍后」或「跳过此版本」；命令面板中的「Check for Updates…」可以随时手动检查。下载进度显示在状态栏。macOS 上替换应用后重启；Windows 上以 passive 模式运行新版 NSIS 安装程序（显示进度、无需操作），装完后自动重新打开 GlideGit。
+
+Windows 上不使用插件自带的安装步骤：插件启动安装程序后立刻退出进程，而安装程序关闭应用后只等半秒就开始覆盖文件，退出较慢时 `glidegit.exe` 仍被占用，安装程序会报「无法打开要写入的文件」。GlideGit 改为把校验过的安装程序写到临时目录，由一个隐藏的 PowerShell 进程等 GlideGit 的进程完全结束后再启动它（`/P /UPDATE /R`），见 `crates/app/src/updater.rs`。
 
 更新包用单独的**更新签名密钥**签名（与 Apple / Windows 的代码签名无关，免费、本地生成），应用内置公钥，只安装签名有效的包。签名中还记录了版本号，应用会拒绝「版本号与签名不符」的包，防止有人把旧版本的包冒充成新版本推给用户（`requireSignedVersion`）。
 

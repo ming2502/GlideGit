@@ -112,8 +112,9 @@ struct ProgressEvent {
     progress: DownloadProgress,
 }
 
-/// Download, verify and install the update found by the last check. On
-/// Windows the installer takes over and the app exits; elsewhere call
+/// Download, verify and install the update found by the last check.
+/// Returns true when the installer has taken over and the app is exiting
+/// (Windows: the installer restarts the app when done); otherwise call
 /// [`restart_app`] afterwards.
 #[tauri::command]
 pub async fn install_update(
@@ -121,7 +122,7 @@ pub async fn install_update(
     pending: State<'_, PendingUpdate>,
     state: State<'_, AppState>,
     task_id: u64,
-) -> Result<(), CmdError> {
+) -> Result<bool, CmdError> {
     let Some(update) = pending.0.lock().unwrap().take() else {
         return Err(CmdError::new(
             "update",
@@ -135,8 +136,8 @@ pub async fn install_update(
     let mut received: u64 = 0;
     let mut last_percent: Option<u8> = None;
     let emitter = app.clone();
-    let result = update
-        .download_and_install(
+    let downloaded = update
+        .download(
             |chunk, total| {
                 received += chunk as u64;
                 let percent = total
@@ -176,12 +177,106 @@ pub async fn install_update(
             },
         )
         .await;
-    if let Err(e) = result {
-        // Keep it so "install" can be retried without checking again.
-        *pending.0.lock().unwrap() = Some(update);
-        return Err(update_error(e));
+    match downloaded.and_then(|bytes| install_downloaded(&app, &update, &bytes)) {
+        Ok(exiting) => Ok(exiting),
+        Err(e) => {
+            // Keep it so "install" can be retried without checking again.
+            *pending.0.lock().unwrap() = Some(update);
+            Err(update_error(e))
+        }
     }
-    Ok(())
+}
+
+/// Install the verified update package.
+#[cfg(not(windows))]
+fn install_downloaded(
+    _app: &AppHandle,
+    update: &Update,
+    bytes: &[u8],
+) -> Result<bool, tauri_plugin_updater::Error> {
+    update.install(bytes).map(|()| false)
+}
+
+/// Windows: the plugin starts the NSIS installer and exits right away, and
+/// the installer (after closing the app and waiting only half a second) can
+/// find `glidegit.exe` still locked by the exiting process: "Error opening
+/// file for writing". So the installer is started by a small hidden
+/// PowerShell process that first waits until this process is gone.
+#[cfg(windows)]
+fn install_downloaded(
+    app: &AppHandle,
+    update: &Update,
+    bytes: &[u8],
+) -> Result<bool, tauri_plugin_updater::Error> {
+    // The NSIS updater artifact is the setup program itself; anything else
+    // (an MSI, a zipped bundle) goes through the plugin.
+    if !bytes.starts_with(b"MZ") {
+        // The plugin exits the process itself after starting the installer.
+        return update.install(bytes).map(|()| true);
+    }
+    let path = std::env::temp_dir().join(format!("GlideGit-{}-setup.exe", update.version));
+    std::fs::write(&path, bytes)?;
+    windows_installer::launch_after_exit(&path)?;
+    app.exit(0);
+    Ok(true)
+}
+
+#[cfg(windows)]
+mod windows_installer {
+    use std::os::windows::process::CommandExt;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    /// The PowerShell script: wait for `pid` to exit (at most a minute), give
+    /// Windows a moment to release the executable, then run the installer
+    /// passively in update mode and restart the app afterwards (`/R`).
+    pub(super) fn script(pid: u32, installer: &Path) -> String {
+        let path = installer.display().to_string().replace('\'', "''");
+        format!(
+            "Wait-Process -Id {pid} -Timeout 60 -ErrorAction SilentlyContinue; \
+             Start-Sleep -Milliseconds 300; \
+             Start-Process -FilePath '{path}' -ArgumentList '/P','/UPDATE','/R'"
+        )
+    }
+
+    pub(super) fn launch_after_exit(installer: &Path) -> std::io::Result<()> {
+        let powershell = std::env::var_os("SystemRoot")
+            .map(|root| Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| "powershell.exe".into());
+        Command::new(powershell)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+            ])
+            .args(["-WindowStyle", "Hidden", "-Command"])
+            .arg(script(std::process::id(), installer))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
+            .spawn()
+            .map(drop)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn script_quotes_the_path() {
+            let s = super::script(
+                42,
+                std::path::Path::new(r"C:\Users\O'Neil\Temp\GlideGit-1.2.0-setup.exe"),
+            );
+            assert!(s.starts_with("Wait-Process -Id 42 "));
+            assert!(s.contains(r"-FilePath 'C:\Users\O''Neil\Temp\GlideGit-1.2.0-setup.exe'"));
+            assert!(s.ends_with("-ArgumentList '/P','/UPDATE','/R'"));
+        }
+    }
 }
 
 /// Restart into the newly installed version.

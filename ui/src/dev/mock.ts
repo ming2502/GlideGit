@@ -470,7 +470,7 @@ export function installMock(): void {
             await emit("task-progress", { taskId: a.taskId, progress: { phase: "下载更新", percent: p, detail: `${(p * 0.13).toFixed(1)} MB / 13.0 MB` } });
             await sleep(250);
           }
-          return null;
+          return false;
         })();
       case "restart_app":
         (window as unknown as { __restarted: boolean }).__restarted = true;
@@ -548,6 +548,8 @@ export function installMock(): void {
           commits: log.slice(0, 3),
           behind: 1,
         };
+      case "center_next_dialog":
+        return null;
       case "plugin:dialog|open":
         // Each "Open…" in the demo picks the next sample repository.
         return DEMO_REPOS[pickCount++ % DEMO_REPOS.length];

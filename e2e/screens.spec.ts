@@ -149,3 +149,18 @@ test("log with commit details, English", async ({ page }) => {
   await settle(page);
   await expect(page).toHaveScreenshot("log-en.png");
 });
+
+// Not a screenshot: the app's own tooltips replace the system ones.
+test("tooltips", async ({ page }) => {
+  await start(page);
+  await openRepo(page);
+  const fetch = page.locator('.tb-icon[data-tip="Fetch"]');
+  await expect(fetch).toHaveCount(1);
+  await expect(page.locator("[title]")).toHaveCount(0);
+  // An icon-only button keeps its tip as its accessible name.
+  await expect(page.getByRole("button", { name: "Fetch" })).toBeVisible();
+  await fetch.hover();
+  await expect(page.locator(".tooltip")).toHaveText("Fetch");
+  await page.mouse.move(640, 790);
+  await expect(page.locator(".tooltip")).toHaveCount(0);
+});

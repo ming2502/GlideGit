@@ -68,7 +68,8 @@ export const api = {
   setLanguage: (language: "zh" | "en") => invoke<void>("set_language", { language }),
   updatesEnabled: () => invoke<boolean>("updates_enabled"),
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
-  installUpdate: (taskId: number) => invoke<void>("install_update", { taskId }),
+  /** True when the installer has taken over and the app is exiting (Windows). */
+  installUpdate: (taskId: number) => invoke<boolean>("install_update", { taskId }),
   restartApp: () => invoke<void>("restart_app"),
   getSettings: () => invoke<{ gitPath: string | null }>("get_settings"),
   saveSettings: (settings: { gitPath: string | null }) => invoke<void>("save_settings", { settings }),

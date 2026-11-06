@@ -3,6 +3,7 @@
 
 mod askpass_bridge;
 mod commands;
+mod dialogs;
 mod settings;
 mod tasks;
 mod updater;
@@ -114,6 +115,7 @@ fn main() {
             updater::check_update,
             updater::install_update,
             updater::restart_app,
+            dialogs::center_next_dialog,
             commands::open_repo,
             commands::close_repo,
             commands::refresh,

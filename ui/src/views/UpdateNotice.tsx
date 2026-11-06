@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage, type UpdateInfo } from "../api";
 import { useActions } from "../actions/registry";
+import { Notes } from "../components/Notes";
 import { load, save } from "../lib/storage";
 import { useRepo } from "../stores/repo";
 import { t } from "../i18n";
@@ -71,12 +72,9 @@ export function UpdateNotice() {
   const install = async () => {
     setBusy(true);
     const st = useRepo.getState();
-    const done = await st.runAppTask(t("更新到 {version}", { version: update.version }), async (taskId) => {
-      await api.installUpdate(taskId);
-      return true;
-    });
-    if (done) {
-      // On Windows the installer has taken over by now; elsewhere restart into it.
+    const exiting = await st.runAppTask(t("更新到 {version}", { version: update.version }), (taskId) => api.installUpdate(taskId));
+    // On Windows the installer takes over (and restarts the app); elsewhere restart into it.
+    if (exiting === false) {
       await api.restartApp().catch((e) => st.toast({ kind: "error", title: t("请手动重启 GlideGit"), detail: errorMessage(e) }));
     }
     setBusy(false);
@@ -97,7 +95,7 @@ export function UpdateNotice() {
           {notesOpen ? t("收起更新说明") : t("查看更新说明")}
         </button>
       )}
-      {notesOpen && update.notes && <pre className="un-notes">{update.notes}</pre>}
+      {notesOpen && update.notes && <Notes markdown={update.notes} className="notes un-notes" />}
       <div className="un-actions">
         <button className="btn btn-sm" onClick={skip} disabled={busy} title={t("不再提示这个版本（仍可在命令面板中手动检查）")}>
           {t("跳过此版本")}

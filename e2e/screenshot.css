@@ -1,0 +1,5 @@
+/* Applied while taking screenshots: a tooltip showing up under the pointer
+   after a click would make the image depend on timing. */
+.tooltip {
+  display: none !important;
+}

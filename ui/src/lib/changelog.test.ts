@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changelogBlocks, changelogSection, codeSpans } from "./changelog";
+import { changelogBlocks, changelogSection, codeSpans, inlineSpans } from "./changelog";
 
 const SAMPLE = `# 更新日志
 
@@ -35,5 +35,16 @@ describe("changelog", () => {
       { kind: "item", text: "一项功能，带 `代码` 和换行的续行。" },
     ]);
     expect(codeSpans("带 `代码` 的")).toEqual(["带 ", "代码", " 的"]);
+  });
+
+  it("parses inline code, bold and links", () => {
+    expect(inlineSpans("用 `git **x**` 和 **加粗**，见 [README](https://x.y/z#a)。")).toEqual([
+      { kind: "text", text: "用 " },
+      { kind: "code", text: "git **x**" },
+      { kind: "text", text: " 和 " },
+      { kind: "strong", text: "加粗" },
+      { kind: "text", text: "，见 README。" },
+    ]);
+    expect(inlineSpans("plain")).toEqual([{ kind: "text", text: "plain" }]);
   });
 });

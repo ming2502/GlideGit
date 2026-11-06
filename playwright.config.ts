@@ -24,6 +24,7 @@ export default defineConfig({
       maxDiffPixels: 100,
       animations: "disabled",
       caret: "hide",
+      stylePath: "e2e/screenshot.css",
     },
   },
   use: {
